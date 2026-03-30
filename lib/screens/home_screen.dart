@@ -5,10 +5,12 @@ import '../services/recording_service.dart';
 import '../services/database_service.dart';
 import '../services/note_service.dart';
 import '../utils/permission_manager.dart';
+import '../services/file_import_service.dart';
 import 'note_list_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'text_note_editor_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -128,6 +130,24 @@ class _HomeContentState extends State<_HomeContent> {
     }
   }
 
+  Future<void> _importFile() async {
+    final result = await FileImportService().importFile();
+    if (result != null && result.success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message)),
+        );
+        _loadData();
+      }
+    } else if (result != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   String _formatDuration(int seconds) {
     final mins = seconds ~/ 60;
     final secs = seconds % 60;
@@ -149,7 +169,10 @@ class _HomeContentState extends State<_HomeContent> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: 打开设置
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
             },
           ),
         ],
@@ -238,9 +261,7 @@ class _HomeContentState extends State<_HomeContent> {
             icon: Icons.mic, // 语音笔记图标
             title: '语音笔记',
             color: Colors.orange,
-            onTap: () {
-              // TODO: 打开语音笔记录制
-            },
+            onTap: _toggleRecording,
           ),
         ),
         const SizedBox(width: 12),
@@ -249,9 +270,7 @@ class _HomeContentState extends State<_HomeContent> {
             icon: Icons.upload_file,
             title: '导入文件',
             color: Colors.purple,
-            onTap: () {
-              // TODO: 打开文件导入
-            },
+            onTap: _importFile,
           ),
         ),
       ],
