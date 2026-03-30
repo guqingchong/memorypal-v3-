@@ -75,9 +75,19 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WECHAT_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "checkUsageStatsPermission" -> {
+                        result.success(checkUsageStatsPermission())
+                    }
+                    "openUsageStatsSettings" -> {
+                        openUsageStatsSettings()
+                        result.success(true)
+                    }
                     "getForegroundApp" -> {
-                        // 获取前台应用包名（需要辅助服务权限，这里返回空）
-                        result.success(null)
+                        if (checkUsageStatsPermission()) {
+                            result.success(getForegroundAppPackage())
+                        } else {
+                            result.success(null)
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -117,5 +127,44 @@ class MainActivity : FlutterActivity() {
             }
         }
         return false
+    }
+
+    // Usage Stats 权限检查
+    private fun checkUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(), packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(), packageName
+            )
+        }
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    // 打开 Usage Stats 设置页面
+    private fun openUsageStatsSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        startActivity(intent)
+    }
+
+    // 获取前台应用包名
+    private fun getForegroundAppPackage(): String? {
+        if (!checkUsageStatsPermission()) return null
+
+        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+        val time = System.currentTimeMillis()
+        val stats = usageStatsManager.queryUsageStats(
+            android.app.usage.UsageStatsManager.INTERVAL_DAILY,
+            time - 1000 * 10,
+            time
+        )
+
+        return stats?.maxByOrNull { it.lastTimeUsed }?.packageName
     }
 }

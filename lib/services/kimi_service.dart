@@ -43,6 +43,9 @@ class KimiService {
   // 检查是否可用
   bool get isAvailable => _isEnabled && _apiKey != null;
 
+  // 获取API Key（用于其他服务）
+  String? get apiKey => _apiKey;
+
   // 检查预算是否超限
   bool get isWithinBudget {
     if (_monthlyBudget <= 0) return true;

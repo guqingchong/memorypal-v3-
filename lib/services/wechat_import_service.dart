@@ -29,13 +29,248 @@ class WeChatImportService {
   // 提醒阈值（5分钟）
   static const int _reminderThreshold = 300; // 5分钟
 
+  // 是否启用了自动检测（需要特殊权限）
+  bool _autoDetectionEnabled = false;
+
   /// 初始化服务
   Future<void> initialize() async {
-    // 监听原生层的前台应用变化
-    _channel.setMethodCallHandler(_handleMethodCall);
+    // 尝试启用自动检测
+    _autoDetectionEnabled = await _checkAndRequestUsageStatsPermission();
 
-    // 启动周期性检查
-    _startMonitoring();
+    if (_autoDetectionEnabled) {
+      // 监听原生层的前台应用变化
+      _channel.setMethodCallHandler(_handleMethodCall);
+      // 启动周期性检查
+      _startMonitoring();
+    }
+  }
+
+  /// 检查并请求Usage Stats权限
+  Future<bool> _checkAndRequestUsageStatsPermission() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('checkUsageStatsPermission');
+      return result ?? false;
+    } catch (e) {
+      debugPrint('检查Usage Stats权限失败: $e');
+      return false;
+    }
+  }
+
+  /// 显示手动导入入口
+  ///
+  /// 由于Android限制，自动检测需要特殊权限
+  /// 提供手动导入作为可靠替代方案
+  void showManualImportGuide(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) {
+          return SafeArea(
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.chat, color: Colors.green),
+                          SizedBox(width: 8),
+                          Text(
+                            '导入微信聊天记录',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Card(
+                        color: Colors.orange.shade50,
+                        child: const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '关于自动检测',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                '由于Android系统限制，自动检测微信使用情况需要"使用情况访问权限"，该权限需要用户在系统设置中手动开启。',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '推荐方法：手动导入',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildStepTile(
+                        number: 1,
+                        title: '在微信中选择消息',
+                        description: '长按重要消息 → 多选 → 选择多条消息',
+                      ),
+                      _buildStepTile(
+                        number: 2,
+                        title: '合并转发',
+                        description: '点击"转发" → "合并转发" → 选择"文件传输助手"',
+                      ),
+                      _buildStepTile(
+                        number: 3,
+                        title: '复制或截图',
+                        description: '打开文件传输助手的合并消息，长按复制文本或截图保存',
+                      ),
+                      _buildStepTile(
+                        number: 4,
+                        title: '导入到MemoryPal',
+                        description: '点击下方按钮，粘贴文本或选择截图',
+                        isLast: true,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _createNoteFromWeChat(context);
+                        },
+                        icon: const Icon(Icons.note_add),
+                        label: const Text('创建微信笔记'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _importFromImage(context);
+                        },
+                        icon: const Icon(Icons.image),
+                        label: const Text('从截图导入（OCR）'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      if (!_autoDetectionEnabled)
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _openUsageStatsSettings();
+                          },
+                          icon: const Icon(Icons.settings),
+                          label: const Text('开启自动检测（需系统设置）'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStepTile({
+    required int number,
+    required String title,
+    required String description,
+    bool isLast = false,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Column(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Center(
+                child: Text(
+                  '$number',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+            if (!isLast)
+              Container(
+                width: 2,
+                height: 40,
+                color: Colors.grey.shade300,
+              ),
+          ],
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 打开系统设置中的Usage Stats权限页面
+  Future<void> _openUsageStatsSettings() async {
+    try {
+      await _channel.invokeMethod('openUsageStatsSettings');
+    } catch (e) {
+      debugPrint('打开设置失败: $e');
+    }
+  }
+
+  /// 从图片导入（OCR）
+  Future<void> _importFromImage(BuildContext context) async {
+    // 调用FileImportService导入图片并OCR
+    // 这里简化处理，实际需要集成
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('请在首页点击"导入文件"选择微信截图')),
+    );
   }
 
   /// 处理原生层回调

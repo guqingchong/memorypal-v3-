@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:pdf_text/pdf_text.dart';
+import 'package:docx_to_text/docx_to_text.dart';
 import 'database_service.dart';
 
 /// 文件导入服务
@@ -85,17 +87,65 @@ class FileImportService {
     }
   }
 
-  /// 从PDF提取文本（简化版，实际需要PDF解析库）
+  /// 从PDF提取文本
   Future<String> _extractFromPdf(String filePath) async {
-    // TODO: 集成PDF解析库（如pdf_text或pdfx）
-    // 暂时返回文件名作为占位
-    return 'PDF文件: ${filePath.split('/').last}\n（需要集成PDF解析库）';
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        return 'PDF文件不存在';
+      }
+
+      // 使用pdf_text库解析
+      final pdfDoc = await PDFDoc.fromPath(filePath);
+      final text = await pdfDoc.text;
+      await pdfDoc.close();
+
+      if (text.trim().isEmpty) {
+        return 'PDF文件内容为空（可能是扫描件或图片PDF）';
+      }
+
+      // 限制文本长度，避免存储过大
+      final maxLength = 50000;
+      if (text.length > maxLength) {
+        return '${text.substring(0, maxLength)}\n\n[内容过长，已截断]';
+      }
+
+      return text;
+    } catch (e) {
+      print('PDF解析失败: $e');
+      return 'PDF解析失败: $e';
+    }
   }
 
   /// 从Word文档提取文本
   Future<String> _extractFromWord(String filePath) async {
-    // TODO: 集成docx解析库
-    return 'Word文件: ${filePath.split('/').last}\n（需要集成Word解析库）';
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        return 'Word文件不存在';
+      }
+
+      // 读取文件字节
+      final bytes = await file.readAsBytes();
+
+      // 使用docx_to_text解析
+      final text = docxToText(bytes, handleNumbering: true);
+
+      if (text.trim().isEmpty) {
+        return 'Word文档内容为空';
+      }
+
+      // 限制文本长度
+      final maxLength = 50000;
+      if (text.length > maxLength) {
+        return '${text.substring(0, maxLength)}\n\n[内容过长，已截断]';
+      }
+
+      return text;
+    } catch (e) {
+      print('Word解析失败: $e');
+      return 'Word解析失败: $e';
+    }
   }
 
   /// 从文本文件提取内容
