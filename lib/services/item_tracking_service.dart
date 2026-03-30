@@ -72,8 +72,8 @@ class ItemTrackingService {
     // 从最近录音中识别新事项
     final recordings = await _databaseService.getRecordings(limit: 50);
     for (final r in recordings) {
-      if (r.transcript != null) {
-        final newItems = _extractItemsFromText(r.transcript!, r.id, 'recording');
+      if (r.transcript != null && r.id != null) {
+        final newItems = _extractItemsFromText(r.transcript!, r.id!, 'recording');
         for (final item in newItems) {
           if (!_itemExists(items, item.title)) {
             items.add(item);
@@ -86,7 +86,8 @@ class ItemTrackingService {
     // 从笔记中识别新事项
     final notes = await _databaseService.getNotes(limit: 50);
     for (final n in notes) {
-      final newItems = _extractItemsFromText('${n.title} ${n.content}', n.id, 'note');
+      if (n.id == null) continue;
+      final newItems = _extractItemsFromText('${n.title} ${n.content}', n.id!, 'note');
       for (final item in newItems) {
         if (!_itemExists(items, item.title)) {
           items.add(item);

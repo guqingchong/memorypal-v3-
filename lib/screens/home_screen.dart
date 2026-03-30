@@ -11,6 +11,8 @@ import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'text_note_editor_screen.dart';
 import 'settings_screen.dart';
+import 'recording_detail_screen.dart';
+import '../services/wechat_import_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -157,23 +159,47 @@ class _HomeContentState extends State<_HomeContent> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Row(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        title: Row(
           children: [
-            Icon(Icons.psychology, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('MemoryPal', style: TextStyle(fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.psychology, color: Colors.blue, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'MemoryPal',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 22,
+                color: Colors.black87,
+              ),
+            ),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.grey),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -335,36 +361,52 @@ class _HomeContentState extends State<_HomeContent> {
       onTap: _toggleRecording,
       onLongPress: _showRecordingModeSelector,
       child: Container(
-        height: 120,
+        height: 140,
         decoration: BoxDecoration(
-          color: _isRecording ? Colors.red.shade50 : Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _isRecording ? Colors.red : Colors.blue,
-            width: 2,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: _isRecording
+                ? [Colors.red.shade400, Colors.red.shade600]
+                : [Colors.blue.shade400, Colors.blue.shade600],
           ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: (_isRecording ? Colors.red : Colors.blue).withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              _isRecording ? Icons.stop_circle : Icons.mic,
-              size: 48,
-              color: _isRecording ? Colors.red : Colors.blue,
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
+                size: 40,
+                color: Colors.white,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               _isRecording ? '录音中 ${_formatDuration(_recordingSeconds)}' : '点击开始录音',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _isRecording ? Colors.red : Colors.blue,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
             if (!_isRecording)
-              const Text(
+              Text(
                 '长按选择模式',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
               ),
           ],
         ),
@@ -373,9 +415,12 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildQuickActions() {
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
       children: [
-        Expanded(
+        SizedBox(
+          width: (MediaQuery.of(context).size.width - 56) / 4,
           child: _ActionCard(
             icon: Icons.edit,
             title: '文字笔记',
@@ -388,17 +433,17 @@ class _HomeContentState extends State<_HomeContent> {
             },
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+        SizedBox(
+          width: (MediaQuery.of(context).size.width - 56) / 4,
           child: _ActionCard(
-            icon: Icons.mic, // 语音笔记图标
+            icon: Icons.mic,
             title: '语音笔记',
             color: Colors.orange,
             onTap: _toggleRecording,
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+        SizedBox(
+          width: (MediaQuery.of(context).size.width - 56) / 4,
           child: _ActionCard(
             icon: Icons.upload_file,
             title: '导入文件',
@@ -406,8 +451,21 @@ class _HomeContentState extends State<_HomeContent> {
             onTap: _importFile,
           ),
         ),
+        SizedBox(
+          width: (MediaQuery.of(context).size.width - 56) / 4,
+          child: _ActionCard(
+            icon: Icons.chat,
+            title: '微信导入',
+            color: Colors.green.shade600,
+            onTap: _showWeChatImport,
+          ),
+        ),
       ],
     );
+  }
+
+  void _showWeChatImport() {
+    WeChatImportService().showManualImportGuide(context);
   }
 
   Widget _buildAssistantMessages() {
@@ -428,49 +486,64 @@ class _HomeContentState extends State<_HomeContent> {
           children: [
             const Text(
               '今日助理消息',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+              ),
             ),
-            const SizedBox(height: 8),
-            Card(
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (todayTodos.isNotEmpty) ...[
                       _buildMessageItem(
-                        Icons.check_circle,
+                        Icons.check_circle_rounded,
                         '你有 ${todayTodos.length} 个待办事项今天到期',
-                        Colors.orange,
+                        Colors.orange.shade400,
                       ),
-                      const Divider(),
+                      Divider(color: Colors.grey.shade100, height: 24),
                     ],
                     if (pendingTodos.isNotEmpty) ...[
                       _buildMessageItem(
-                        Icons.task_alt,
+                        Icons.task_alt_rounded,
                         '共有 ${pendingTodos.length} 个待办事项等待处理',
-                        Colors.blue,
+                        Colors.blue.shade400,
                       ),
-                      const Divider(),
+                      Divider(color: Colors.grey.shade100, height: 24),
                     ],
                     if (_recentRecordings.isEmpty && _recentNotes.isEmpty)
                       _buildMessageItem(
-                        Icons.wb_sunny,
+                        Icons.wb_sunny_rounded,
                         '早安！今天还没有记录，开始记录你的生活吧',
-                        Colors.orange,
+                        Colors.orange.shade400,
                       )
                     else
                       _buildMessageItem(
-                        Icons.lightbulb,
+                        Icons.lightbulb_rounded,
                         '今天已记录 ${_recentRecordings.length} 条录音、${_recentNotes.length} 条笔记',
-                        Colors.green,
+                        Colors.green.shade400,
                       ),
                     if (todayTodos.isEmpty && pendingTodos.isEmpty && _recentRecordings.isEmpty && _recentNotes.isEmpty) ...[
-                      const Divider(),
+                      Divider(color: Colors.grey.shade100, height: 24),
                       _buildMessageItem(
-                        Icons.psychology,
+                        Icons.psychology_rounded,
                         '试试对我说："我最近有什么待办？"',
-                        Colors.purple,
+                        Colors.purple.shade400,
                       ),
                     ],
                   ],
@@ -485,12 +558,28 @@ class _HomeContentState extends State<_HomeContent> {
 
   Widget _buildMessageItem(IconData icon, String text, Color color) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text)),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.black87,
+                height: 1.4,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -505,24 +594,44 @@ class _HomeContentState extends State<_HomeContent> {
           children: [
             const Text(
               '今天',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+              ),
             ),
             TextButton(
               onPressed: () {
                 // TODO: 查看全部
               },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.blue,
+              ),
               child: const Text('查看全部'),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         ..._recentRecordings.map((r) => _buildRecordingItem(r)),
         ..._recentNotes.map((n) => _buildNoteItem(n)),
         if (_recentRecordings.isEmpty && _recentNotes.isEmpty)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('今天还没有记录', style: TextStyle(color: Colors.grey)),
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Center(
+              child: Column(
+                children: [
+                  Icon(Icons.inbox_outlined, size: 48, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text(
+                    '今天还没有记录',
+                    style: TextStyle(color: Colors.grey, fontSize: 15),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -530,30 +639,109 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildRecordingItem(Recording recording) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: ListTile(
-        leading: const Icon(Icons.mic, color: Colors.blue),
-        title: Text('录音 ${_formatTime(recording.startTime)}'),
-        subtitle: Text(recording.transcript ?? '暂无转写'),
-        trailing: Text('${recording.durationSeconds}s'),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.mic_rounded, color: Colors.blue, size: 22),
+        ),
+        title: Text(
+          recording.title ?? '录音 ${_formatTime(recording.startTime)}',
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+        subtitle: Text(
+          recording.transcript?.isNotEmpty == true
+              ? (recording.transcript!.length > 50
+                  ? '${recording.transcript!.substring(0, 50)}...'
+                  : recording.transcript!)
+              : '暂无转写',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '${recording.durationSeconds}s',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RecordingDetailScreen(recording: recording),
+            ),
+          ).then((_) => _loadData());
+        },
       ),
     );
   }
 
   Widget _buildNoteItem(Note note) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    final isVoiceNote = note.type == NoteType.voice;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: ListTile(
-        leading: Icon(
-          note.type == NoteType.voice ? Icons.mic : Icons.note,
-          color: note.type == NoteType.voice ? Colors.orange : Colors.green,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: (isVoiceNote ? Colors.orange : Colors.green).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            isVoiceNote ? Icons.mic_rounded : Icons.notes_rounded,
+            color: isVoiceNote ? Colors.orange : Colors.green,
+            size: 22,
+          ),
         ),
-        title: Text(note.title),
+        title: Text(
+          note.title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
         subtitle: Text(
           note.content.length > 50 ? '${note.content.substring(0, 50)}...' : note.content,
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
         ),
-        trailing: Text(_formatTime(note.createdAt)),
+        trailing: Text(
+          _formatTime(note.createdAt),
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+        ),
       ),
     );
   }
@@ -581,16 +769,39 @@ class _ActionCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 32),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
             const SizedBox(height: 8),
-            Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+            Text(
+              title,
+              style: TextStyle(
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
           ],
         ),
       ),

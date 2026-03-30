@@ -5,6 +5,7 @@ class Recording {
   final DateTime startTime;
   final DateTime endTime;
   final int durationSeconds;
+  final String? title;  // 智能生成的标题
   final String? transcript;
   final String? summary;
   final List<String> tags;
@@ -20,6 +21,7 @@ class Recording {
     required this.startTime,
     required this.endTime,
     required this.durationSeconds,
+    this.title,  // 智能标题
     this.transcript,
     this.summary,
     this.tags = const [],
@@ -37,6 +39,7 @@ class Recording {
       'start_time': startTime.millisecondsSinceEpoch,
       'end_time': endTime.millisecondsSinceEpoch,
       'duration_seconds': durationSeconds,
+      'title': title,
       'transcript': transcript,
       'summary': summary,
       'tags': tags.join(','),
@@ -55,6 +58,7 @@ class Recording {
       startTime: DateTime.fromMillisecondsSinceEpoch(map['start_time'] as int),
       endTime: DateTime.fromMillisecondsSinceEpoch(map['end_time'] as int),
       durationSeconds: map['duration_seconds'] as int,
+      title: map['title'] as String?,
       transcript: map['transcript'] as String?,
       summary: map['summary'] as String?,
       tags: map['tags'] != null && (map['tags'] as String).isNotEmpty
@@ -74,6 +78,7 @@ class Recording {
     DateTime? startTime,
     DateTime? endTime,
     int? durationSeconds,
+    String? title,
     String? transcript,
     String? summary,
     List<String>? tags,
@@ -89,6 +94,7 @@ class Recording {
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       durationSeconds: durationSeconds ?? this.durationSeconds,
+      title: title ?? this.title,
       transcript: transcript ?? this.transcript,
       summary: summary ?? this.summary,
       tags: tags ?? this.tags,

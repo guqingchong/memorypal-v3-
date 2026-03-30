@@ -3,6 +3,16 @@ import '../models/note.dart';
 import '../models/recording.dart';
 import 'database_service.dart';
 
+/// 查询意图类型
+enum QueryIntent {
+  searchTodos, // 查找待办
+  searchByTime, // 按时间查找
+  searchByPerson, // 按人查找
+  searchByTopic, // 按主题查找
+  searchFiles, // 查找文件
+  generalQuestion, // 一般问题
+}
+
 /// 语义搜索服务
 ///
 /// 使用关键词扩展和同义词匹配来模拟语义理解
@@ -29,16 +39,6 @@ class VectorSearchService {
     '地点': ['位置', '场所', '地址', '地方'],
     '人员': ['同事', '团队', '成员', '伙伴', '人员'],
   };
-
-  /// 查询意图类型
-  enum QueryIntent {
-    searchTodos,      // 查找待办
-    searchByTime,     // 按时间查找
-    searchByPerson,   // 按人查找
-    searchByTopic,    // 按主题查找
-    searchFiles,      // 查找文件
-    generalQuestion,  // 一般问题
-  }
 
   /// 解析查询意图
   QueryIntent _parseIntent(String query) {
@@ -298,7 +298,7 @@ class VectorSearchService {
 class SearchResult {
   final List<ScoredRecording> recordings;
   final List<ScoredNote> notes;
-  final VectorSearchService.QueryIntent intent;
+  final QueryIntent intent;
   final Set<String> expandedKeywords;
 
   SearchResult({

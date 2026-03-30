@@ -86,7 +86,7 @@ class BackupService {
       await extractDir.create(recursive: true);
 
       // 1. 可选：解密文件
-      String zipPath = backupPath;
+      String? zipPath = backupPath;
       if (password != null && password.isNotEmpty) {
         zipPath = await _decryptFile(backupPath, password);
         if (zipPath == null) {

@@ -70,8 +70,8 @@ class PermissionManager {
   }
 
   // 打开应用设置
-  Future<void> openAppSettings() async {
-    await openAppSettings();
+  Future<void> openSystemSettings() async {
+    await openAppSettings(); // permission_handler 包的函数
   }
 
   // 显示权限解释对话框
@@ -168,7 +168,7 @@ class PermissionManager {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              openAppSettings();
+              openSystemSettings();
             },
             child: const Text('去设置'),
           ),

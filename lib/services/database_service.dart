@@ -24,7 +24,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,  // 升级到版本3，添加title字段
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -59,6 +59,16 @@ class DatabaseService {
         print('创建事项追踪表失败: $e');
       }
     }
+
+    if (oldVersion < 3) {
+      // 添加title字段到录音表（版本3）
+      try {
+        await db.execute('ALTER TABLE recordings ADD COLUMN title TEXT');
+        print('数据库升级：添加title字段到recordings表');
+      } catch (e) {
+        print('添加title字段失败（可能已存在）: $e');
+      }
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -70,6 +80,7 @@ class DatabaseService {
         start_time INTEGER NOT NULL,
         end_time INTEGER NOT NULL,
         duration_seconds INTEGER NOT NULL,
+        title TEXT,
         transcript TEXT,
         summary TEXT,
         tags TEXT,

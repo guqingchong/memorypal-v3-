@@ -98,7 +98,6 @@ class FileImportService {
       // 使用pdf_text库解析
       final pdfDoc = await PDFDoc.fromPath(filePath);
       final text = await pdfDoc.text;
-      await pdfDoc.close();
 
       if (text.trim().isEmpty) {
         return 'PDF文件内容为空（可能是扫描件或图片PDF）';

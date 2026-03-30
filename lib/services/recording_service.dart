@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/recording.dart';
 import 'database_service.dart';
+import 'location_service.dart';
+import 'transcription_service.dart';
 
 // 录音服务 - 与原生层通信
 class RecordingService {
@@ -14,9 +16,12 @@ class RecordingService {
   RecordingService._internal();
 
   final _databaseService = DatabaseService();
+  final _locationService = LocationService();
+  final _transcriptionService = TranscriptionService();
   Recording? _currentRecording;
   Timer? _recordingTimer;
   int _recordingSeconds = 0;
+  LocationInfo? _currentLocation;
 
   // 状态流
   final _recordingStateController = StreamController<RecordingState>.broadcast();
@@ -64,6 +69,9 @@ class RecordingService {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final filePath = '${directory.path}/recording_$timestamp.m4a';
 
+      // 尝试获取位置信息
+      _currentLocation = await _locationService.getCurrentLocationInfo();
+
       final result = await _channel.invokeMethod('startRecording', {
         'filePath': filePath,
         'isVoiceNote': isVoiceNote,
@@ -75,6 +83,9 @@ class RecordingService {
           startTime: DateTime.now(),
           endTime: DateTime.now(),
           durationSeconds: 0,
+          latitude: _currentLocation?.latitude,
+          longitude: _currentLocation?.longitude,
+          locationName: _currentLocation?.address,
           isVoiceNote: isVoiceNote,
         );
         _recordingSeconds = 0;
@@ -122,9 +133,13 @@ class RecordingService {
   Future<void> _finalizeRecording() async {
     if (_currentRecording == null) return;
 
+    // 生成智能标题
+    final smartTitle = await _generateSmartTitle(_currentRecording!, _recordingSeconds);
+
     final recording = _currentRecording!.copyWith(
       endTime: DateTime.now(),
       durationSeconds: _recordingSeconds,
+      title: smartTitle,
     );
 
     try {
@@ -134,21 +149,133 @@ class RecordingService {
       _recordingStateController.add(RecordingState.error(e.toString()));
     } finally {
       _currentRecording = null;
+      _currentLocation = null;
       _recordingSeconds = 0;
     }
   }
 
+  // 生成智能标题
+  Future<String> _generateSmartTitle(Recording recording, int duration) async {
+    final buffer = StringBuffer();
+
+    // 1. 时间前缀（今早/下午/昨晚/昨天/周一等）
+    final timePrefix = _getTimePrefix(recording.startTime);
+    buffer.write(timePrefix);
+
+    // 2. 场景标识
+    if (recording.isVoiceNote) {
+      buffer.write(' · 备忘');
+    } else if (duration > 300) {
+      // 超过5分钟认为是重要录音
+      buffer.write(' · 录音');
+    }
+
+    // 3. 地点标识
+    if (recording.locationName != null && recording.locationName!.isNotEmpty) {
+      final shortLocation = _extractShortLocation(recording.locationName!);
+      if (shortLocation.isNotEmpty) {
+        buffer.write(' · $shortLocation');
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  // 获取时间前缀
+  String _getTimePrefix(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final recordingDay = DateTime(time.year, time.month, time.day);
+    final difference = today.difference(recordingDay).inDays;
+
+    // 时段判断
+    String period;
+    final hour = time.hour;
+    if (hour >= 6 && hour < 12) {
+      period = '早';
+    } else if (hour >= 12 && hour < 14) {
+      period = '中午';
+    } else if (hour >= 14 && hour < 18) {
+      period = '下午';
+    } else if (hour >= 18 && hour < 22) {
+      period = '晚';
+    } else {
+      period = '深夜';
+    }
+
+    // 日期判断
+    if (difference == 0) {
+      return '今$period';
+    } else if (difference == 1) {
+      return '昨天$period';
+    } else if (difference < 7) {
+      final weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+      return weekdays[time.weekday - 1];
+    } else {
+      return '${time.month}/${time.day}';
+    }
+  }
+
+  // 提取简短地点名称
+  String _extractShortLocation(String fullAddress) {
+    // 尝试提取关键地点类型
+    final keywords = ['公司', '办公室', '会议室', '家', '咖啡厅', '餐厅', '酒店', '机场'];
+    for (final keyword in keywords) {
+      if (fullAddress.contains(keyword)) {
+        return keyword;
+      }
+    }
+
+    // 如果地址太长，截取前10个字符
+    if (fullAddress.length > 10) {
+      return '${fullAddress.substring(0, 10)}...';
+    }
+
+    return fullAddress;
+  }
+
   // 处理分段录音（24小时录音模式）
   Future<void> _processSegment(String filePath) async {
+    // 获取当前位置信息
+    final location = await _locationService.getCurrentLocationInfo();
+
+    // 生成智能标题
+    final startTime = DateTime.now().subtract(const Duration(minutes: 5));
+    final title = await _generateSmartTitleForSegment(startTime, location);
+
     // 将分段录音保存到数据库
     final recording = Recording(
       filePath: filePath,
-      startTime: DateTime.now().subtract(const Duration(minutes: 5)),
+      startTime: startTime,
       endTime: DateTime.now(),
       durationSeconds: 300, // 5分钟分段
+      title: title,
+      latitude: location?.latitude,
+      longitude: location?.longitude,
+      locationName: location?.address,
     );
 
     await _databaseService.insertRecording(recording);
+  }
+
+  // 为后台录音分段生成标题
+  Future<String> _generateSmartTitleForSegment(DateTime startTime, LocationInfo? location) async {
+    final buffer = StringBuffer();
+
+    // 时间前缀
+    final timePrefix = _getTimePrefix(startTime);
+    buffer.write(timePrefix);
+    buffer.write(' · 环境录音');
+
+    // 地点
+    if (location?.address != null) {
+      final shortLocation = _extractShortLocation(location!.address!);
+      if (shortLocation.isNotEmpty) {
+        buffer.write(' · $shortLocation');
+      }
+    }
+
+    return buffer.toString();
   }
 
   // 获取录音目录
