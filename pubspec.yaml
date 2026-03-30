@@ -45,6 +45,13 @@ dependencies:
   # 状态管理
   provider: ^6.1.1
 
+  # 位置服务
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+
+  # 本地通知
+  flutter_local_notifications: ^16.3.0
+
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 
