@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/note.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
 import '../services/kimi_service.dart';
 import '../services/whisper_service.dart';
+import '../services/recording_service.dart';
+import '../services/vector_search_service.dart';
+import '../utils/permission_manager.dart';
 
 /// AI对话界面 - 与助理对话、自然语言检索、智能问答
 class ChatScreen extends StatefulWidget {
@@ -18,14 +23,19 @@ class _ChatScreenState extends State<ChatScreen> {
   final _databaseService = DatabaseService();
   final _kimiService = KimiService();
   final _whisperService = WhisperService();
+  final _vectorSearchService = VectorSearchService();
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
 
   final List<ChatMessage> _messages = [];
   bool _isProcessing = false;
   bool _isRecording = false;
+  bool _isTranscribing = false;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
+  String? _voiceInputPath;
+
+  final _recordingService = RecordingService();
 
   // 快捷询问选项
   final List<String> _quickQuestions = [
@@ -219,63 +229,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<String> _searchByPersonOrTopic(String query) async {
-    // 提取关键词
-    final keywords = <String>[];
-    if (query.contains('李明')) keywords.add('李明');
-    if (query.contains('王总')) keywords.add('王总');
-    if (query.contains('项目')) keywords.add('项目');
-    if (query.contains('讨论')) keywords.add('讨论');
-
-    if (keywords.isEmpty) {
-      return await _askAI(query);
-    }
-
-    final recordings = await _databaseService.getRecordings(limit: 100);
-    final notes = await _databaseService.getNotes(limit: 100);
-
-    final matchedRecordings = <Recording>[];
-    final matchedNotes = <Note>[];
-
-    for (final r in recordings) {
-      final text = '${r.transcript ?? ''} ${r.summary ?? ''}';
-      if (keywords.any((k) => text.contains(k))) {
-        matchedRecordings.add(r);
-      }
-    }
-
-    for (final n in notes) {
-      final text = '${n.title} ${n.content} ${n.transcript ?? ''}';
-      if (keywords.any((k) => text.contains(k))) {
-        matchedNotes.add(n);
-      }
-    }
-
-    if (matchedRecordings.isEmpty && matchedNotes.isEmpty) {
-      return '没有找到包含 "${keywords.join(', ')}" 的记录。\n\n你可以尝试：\n• 使用其他关键词搜索\n• 检查是否有相关录音/笔记';
-    }
-
-    final buffer = StringBuffer();
-    buffer.writeln('📁 找到 ${matchedRecordings.length + matchedNotes.length} 条相关记录：\n');
-
-    if (matchedRecordings.isNotEmpty) {
-      buffer.writeln('🎙️ 相关录音：');
-      for (final r in matchedRecordings.take(5)) {
-        buffer.writeln('• ${r.startTime.month}/${r.startTime.day} ${r.startTime.hour}:${r.startTime.minute.toString().padLeft(2, '0')}');
-        if (r.transcript != null) {
-          buffer.writeln('  "${r.transcript!.substring(0, r.transcript!.length > 40 ? 40 : r.transcript!.length)}..."');
-        }
-      }
-      buffer.writeln('');
-    }
-
-    if (matchedNotes.isNotEmpty) {
-      buffer.writeln('📝 相关笔记：');
-      for (final n in matchedNotes.take(5)) {
-        buffer.writeln('• ${n.title} (${n.createdAt.month}/${n.createdAt.day})');
-      }
-    }
-
-    return buffer.toString();
+    // 使用语义搜索
+    final result = await _vectorSearchService.semanticSearch(query, limit: 5);
+    return _vectorSearchService.generateAnswer(query, result);
   }
 
   Future<String> _searchFiles(String query) async {
@@ -406,30 +362,104 @@ class _ChatScreenState extends State<ChatScreen> {
     return '我理解你想了解 "$question"，但我的云端AI服务暂时不可用。\n\n你可以尝试：\n• 检查网络连接\n• 在设置中配置Kimi API密钥\n• 问我关于待办、最近记录等本地问题';
   }
 
-  void _startVoiceInput() {
+  // 开始语音输入录音
+  Future<void> _startVoiceInput() async {
+    // 检查麦克风权限
+    final hasPermission = await PermissionManager().checkMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限才能语音输入')),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isRecording = true;
       _recordingSeconds = 0;
     });
 
+    // 启动计时器
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
         _recordingSeconds++;
       });
     });
 
-    // TODO: 实现语音转文字输入
-    // 简化版：模拟录音后使用键盘输入
+    // 开始录音（使用临时文件）
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      _voiceInputPath = '${tempDir.path}/voice_input_$timestamp.m4a';
+
+      await _recordingService.startRecordingForTranscription(_voiceInputPath!);
+    } catch (e) {
+      debugPrint('启动语音输入录音失败: $e');
+      _stopVoiceInput();
+    }
   }
 
-  void _stopVoiceInput() {
+  // 停止语音输入并进行转写
+  Future<void> _stopVoiceInput() async {
     _recordingTimer?.cancel();
+
+    if (!_isRecording) return;
+
     setState(() {
       _isRecording = false;
     });
 
-    // 模拟语音识别结果
-    _textController.text = '帮我查找最近的录音记录';
+    // 停止录音
+    await _recordingService.stopRecordingForTranscription();
+
+    // 如果录音太短，放弃
+    if (_recordingSeconds < 1) {
+      _voiceInputPath = null;
+      return;
+    }
+
+    // 显示转写中
+    setState(() {
+      _isTranscribing = true;
+    });
+
+    try {
+      // 调用Whisper进行转写
+      if (_voiceInputPath != null) {
+        final result = await _whisperService.transcribe(_voiceInputPath!);
+
+        if (result != null && result.text.isNotEmpty) {
+          setState(() {
+            _textController.text = result.text;
+          });
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('未能识别语音，请重试')),
+            );
+          }
+        }
+
+        // 清理临时文件
+        final file = File(_voiceInputPath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        _voiceInputPath = null;
+      }
+    } catch (e) {
+      debugPrint('语音转写失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('语音转写失败，请检查网络或重试')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isTranscribing = false;
+      });
+    }
   }
 
   @override
@@ -529,9 +559,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: TextField(
                       controller: _textController,
                       decoration: InputDecoration(
-                        hintText: _isRecording
-                            ? '录音中 ${_recordingSeconds}s...'
-                            : '输入文字或按住麦克风说话...',
+                        hintText: _isTranscribing
+                            ? '正在识别语音...'
+                            : _isRecording
+                                ? '录音中 ${_recordingSeconds}s...'
+                                : '输入文字或按住麦克风说话...',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                           borderSide: BorderSide.none,
@@ -542,13 +574,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       textInputAction: TextInputAction.send,
                       onSubmitted: _sendMessage,
-                      enabled: !_isProcessing,
+                      enabled: !_isProcessing && !_isTranscribing && !_isRecording,
                     ),
                   ),
                   const SizedBox(width: 8),
 
                   // 发送按钮
-                  if (_isProcessing)
+                  if (_isProcessing || _isTranscribing)
                     const SizedBox(
                       width: 24,
                       height: 24,

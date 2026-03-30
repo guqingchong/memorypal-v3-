@@ -279,24 +279,34 @@ class DatabaseService {
 
   // 用户画像操作
   Future<UserProfile?> getUserProfile() async {
-    final db = await database;
-    final maps = await db.query('user_profile');
-    if (maps.isEmpty) return null;
-    return UserProfile.fromMap(maps.first);
+    try {
+      final db = await database;
+      final maps = await db.query('user_profile', limit: 1);
+      if (maps.isEmpty) return null;
+      return UserProfile.fromMap(maps.first);
+    } catch (e) {
+      print('获取用户画像失败: $e');
+      return null;
+    }
   }
 
   Future<int> saveUserProfile(UserProfile profile) async {
-    final db = await database;
-    final existing = await getUserProfile();
-    if (existing != null) {
-      return await db.update(
-        'user_profile',
-        profile.toMap(),
-        where: 'id = ?',
-        whereArgs: [1],
-      );
-    } else {
-      return await db.insert('user_profile', profile.toMap());
+    try {
+      final db = await database;
+      final existing = await getUserProfile();
+      if (existing != null) {
+        return await db.update(
+          'user_profile',
+          profile.toMap(),
+          where: 'id = ?',
+          whereArgs: [1],
+        );
+      } else {
+        return await db.insert('user_profile', profile.toMap());
+      }
+    } catch (e) {
+      print('保存用户画像失败: $e');
+      return -1;
     }
   }
 
@@ -349,40 +359,89 @@ class DatabaseService {
   }
 
   // 待办事项操作
-  Future<int> insertTodo(Map<String, dynamic> todo) async {
-    final db = await database;
-    return await db.insert('todos', todo);
+  Future<int?> insertTodo(Map<String, dynamic> todo) async {
+    try {
+      final db = await database;
+      return await db.insert('todos', todo);
+    } catch (e) {
+      print('插入待办失败: $e');
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getTodos({bool includeCompleted = false}) async {
-    final db = await database;
-    return await db.query(
-      'todos',
-      where: includeCompleted ? null : 'is_completed = 0',
-      orderBy: 'deadline ASC, priority DESC',
-    );
+    try {
+      final db = await database;
+      return await db.query(
+        'todos',
+        where: includeCompleted ? null : 'is_completed = 0',
+        orderBy: 'deadline ASC, priority DESC',
+      );
+    } catch (e) {
+      print('获取待办列表失败: $e');
+      return [];
+    }
   }
 
   Future<int> completeTodo(int id) async {
-    final db = await database;
-    return await db.update(
-      'todos',
-      {
-        'is_completed': 1,
-        'completed_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    try {
+      final db = await database;
+      return await db.update(
+        'todos',
+        {
+          'is_completed': 1,
+          'completed_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    } catch (e) {
+      print('完成待办失败: $e');
+      return 0;
+    }
+  }
+
+  Future<int> deleteTodo(int id) async {
+    try {
+      final db = await database;
+      return await db.delete(
+        'todos',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    } catch (e) {
+      print('删除待办失败: $e');
+      return 0;
+    }
   }
 
   // 获取设置
   Future<Map<String, dynamic>> getSettings() async {
-    final db = await database;
-    final maps = await db.query('user_settings');
-    if (maps.isEmpty) {
-      // 插入默认设置
-      await db.insert('user_settings', {
+    try {
+      final db = await database;
+      final maps = await db.query('user_settings', limit: 1);
+      if (maps.isEmpty) {
+        // 插入默认设置并返回
+        final defaultSettings = {
+          'max_suggestions_per_day': 3,
+          'active_start_hour': 8,
+          'active_end_hour': 22,
+          'allow_location_based': 1,
+          'allow_time_based': 1,
+          'daily_summary_time': '08:00',
+          'night_analysis_enabled': 1,
+          'enable_cloud_analysis': 1,
+          'monthly_api_budget': 0,
+          'recording_retention_days': 30,
+        };
+        await db.insert('user_settings', defaultSettings);
+        return defaultSettings;
+      }
+      return maps.first;
+    } catch (e) {
+      print('获取设置失败: $e');
+      // 返回默认设置
+      return {
         'max_suggestions_per_day': 3,
         'active_start_hour': 8,
         'active_end_hour': 22,
@@ -393,10 +452,8 @@ class DatabaseService {
         'enable_cloud_analysis': 1,
         'monthly_api_budget': 0,
         'recording_retention_days': 30,
-      });
-      return await getSettings();
+      };
     }
-    return maps.first;
   }
 
   // 更新设置
@@ -411,27 +468,42 @@ class DatabaseService {
   }
 
   // 导入文件操作
-  Future<int> insertImportedFile(Map<String, dynamic> file) async {
-    final db = await database;
-    return await db.insert('imported_files', file);
+  Future<int?> insertImportedFile(Map<String, dynamic> file) async {
+    try {
+      final db = await database;
+      return await db.insert('imported_files', file);
+    } catch (e) {
+      print('插入导入文件记录失败: $e');
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getImportedFiles({int limit = 100}) async {
-    final db = await database;
-    return await db.query(
-      'imported_files',
-      orderBy: 'imported_at DESC',
-      limit: limit,
-    );
+    try {
+      final db = await database;
+      return await db.query(
+        'imported_files',
+        orderBy: 'imported_at DESC',
+        limit: limit,
+      );
+    } catch (e) {
+      print('获取导入文件列表失败: $e');
+      return [];
+    }
   }
 
   Future<int> deleteImportedFile(int id) async {
-    final db = await database;
-    return await db.delete(
-      'imported_files',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    try {
+      final db = await database;
+      return await db.delete(
+        'imported_files',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    } catch (e) {
+      print('删除导入文件记录失败: $e');
+      return 0;
+    }
   }
 
   // 关闭数据库

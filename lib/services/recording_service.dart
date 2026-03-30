@@ -210,6 +210,31 @@ class RecordingService {
     _recordingTimer?.cancel();
     _recordingStateController.close();
   }
+
+  // 用于语音转写的临时录音（不保存到数据库）
+  Future<bool> startRecordingForTranscription(String filePath) async {
+    try {
+      final result = await _channel.invokeMethod('startRecording', {
+        'filePath': filePath,
+        'isVoiceNote': false,
+      });
+      return result == true;
+    } catch (e) {
+      print('启动转写录音失败: $e');
+      return false;
+    }
+  }
+
+  // 停止转写录音
+  Future<bool> stopRecordingForTranscription() async {
+    try {
+      final result = await _channel.invokeMethod('stopRecording');
+      return result == true;
+    } catch (e) {
+      print('停止转写录音失败: $e');
+      return false;
+    }
+  }
 }
 
 // 录音状态
