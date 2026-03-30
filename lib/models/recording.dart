@@ -12,6 +12,7 @@ class Recording {
   final double? latitude;
   final double? longitude;
   final String? locationName;
+  final bool isVoiceNote;  // 是否为语音笔记
 
   Recording({
     this.id,
@@ -26,6 +27,7 @@ class Recording {
     this.latitude,
     this.longitude,
     this.locationName,
+    this.isVoiceNote = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -42,6 +44,7 @@ class Recording {
       'latitude': latitude,
       'longitude': longitude,
       'location_name': locationName,
+      'is_voice_note': isVoiceNote ? 1 : 0,
     };
   }
 
@@ -61,6 +64,7 @@ class Recording {
       latitude: map['latitude'] as double?,
       longitude: map['longitude'] as double?,
       locationName: map['location_name'] as String?,
+      isVoiceNote: map['is_voice_note'] == 1,
     );
   }
 
@@ -77,6 +81,7 @@ class Recording {
     double? latitude,
     double? longitude,
     String? locationName,
+    bool? isVoiceNote,
   }) {
     return Recording(
       id: id ?? this.id,
@@ -91,6 +96,7 @@ class Recording {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       locationName: locationName ?? this.locationName,
+      isVoiceNote: isVoiceNote ?? this.isVoiceNote,
     );
   }
 }

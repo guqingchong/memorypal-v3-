@@ -75,6 +75,7 @@ class RecordingService {
           startTime: DateTime.now(),
           endTime: DateTime.now(),
           durationSeconds: 0,
+          isVoiceNote: isVoiceNote,
         );
         _recordingSeconds = 0;
 

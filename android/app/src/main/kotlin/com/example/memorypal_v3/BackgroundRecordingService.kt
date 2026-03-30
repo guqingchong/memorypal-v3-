@@ -92,6 +92,9 @@ class BackgroundRecordingService : Service() {
         // 确保目录存在
         File(outputDirectory).mkdirs()
 
+        // 启动时清理旧录音（循环覆盖策略）
+        cleanupOldRecordings()
+
         startForeground(NOTIFICATION_ID, createNotification())
         startRecording()
 
@@ -398,5 +401,62 @@ class BackgroundRecordingService : Service() {
         stopRecording()
         wakeLock?.release()
         Log.i(TAG, "后台录音服务已销毁")
+    }
+
+    /**
+     * 清理旧录音文件（循环覆盖策略）
+     *
+     * 删除超过保留期限的录音文件
+     * @param retentionDays 保留天数（默认30天）
+     */
+    private fun cleanupOldRecordings(retentionDays: Int = 30) {
+        try {
+            val dir = File(outputDirectory)
+            if (!dir.exists() || !dir.isDirectory) return
+
+            val cutoffTime = System.currentTimeMillis() - (retentionDays * 24 * 60 * 60 * 1000L)
+            var deletedCount = 0
+
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && file.name.startsWith("voice_")) {
+                    if (file.lastModified() < cutoffTime) {
+                        if (file.delete()) {
+                            deletedCount++
+                            Log.d(TAG, "删除旧录音: ${file.name}")
+                        }
+                    }
+                }
+            }
+
+            if (deletedCount > 0) {
+                Log.i(TAG, "循环覆盖: 已删除 $deletedCount 个旧录音文件")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "清理旧录音失败", e)
+        }
+    }
+
+    /**
+     * 获取存储空间使用情况
+     */
+    private fun getStorageUsage(): Pair<Long, Int> {
+        return try {
+            val dir = File(outputDirectory)
+            if (!dir.exists()) return Pair(0L, 0)
+
+            var totalSize = 0L
+            var fileCount = 0
+
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && file.name.startsWith("voice_")) {
+                    totalSize += file.length()
+                    fileCount++
+                }
+            }
+
+            Pair(totalSize, fileCount)
+        } catch (e: Exception) {
+            Pair(0L, 0)
+        }
     }
 }

@@ -195,12 +195,145 @@ class _HomeContentState extends State<_HomeContent> {
     );
   }
 
+  // 开始语音笔记录音
+  Future<void> _startVoiceNoteRecording() async {
+    final hasPermission = await PermissionManager().checkMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限才能录音')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isRecording = true);
+
+    // 启动录音（标记为语音笔记）
+    final result = await _recordingService.startRecording(isVoiceNote: true);
+    if (!result) {
+      setState(() => _isRecording = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('启动录音失败')),
+        );
+      }
+    }
+  }
+
+  // 显示录音模式选择
+  void _showRecordingModeSelector() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                '选择录音模式',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.mic, color: Colors.orange),
+              title: const Text('语音笔记'),
+              subtitle: const Text('专门标记为笔记，便于后续整理'),
+              onTap: () {
+                Navigator.pop(context);
+                _startVoiceNoteRecording();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.record_voice_over, color: Colors.blue),
+              title: const Text('普通录音'),
+              subtitle: const Text('常规录音，保存到录音列表'),
+              onTap: () {
+                Navigator.pop(context);
+                _toggleRecording();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.settings_voice, color: Colors.green),
+              title: const Text('24小时环境录音'),
+              subtitle: const Text('启动后台服务，持续监听重要对话'),
+              onTap: () {
+                Navigator.pop(context);
+                _showBackgroundRecordingDialog();
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 显示后台录音设置对话框
+  void _showBackgroundRecordingDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('24小时环境录音'),
+        content: const Text(
+          '启动后台录音服务后，应用将在后台持续监听。\n\n'
+          '注意：\n'
+          '• 会显示持续通知\n'
+          '• 仅在检测到人声时保存录音\n'
+          '• 超过30天的录音将自动删除\n'
+          '• 可能增加电量消耗',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _startBackgroundRecording();
+            },
+            child: const Text('启动'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 启动后台录音
+  Future<void> _startBackgroundRecording() async {
+    final hasPermission = await PermissionManager().checkMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限')),
+        );
+      }
+      return;
+    }
+
+    final result = await _recordingService.startBackgroundRecording();
+    if (result) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('后台录音已启动')),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('启动后台录音失败')),
+        );
+      }
+    }
+  }
+
   Widget _buildRecordingButton() {
     return GestureDetector(
       onTap: _toggleRecording,
-      onLongPress: () {
-        // TODO: 显示录音选项（语音笔记/环境录音）
-      },
+      onLongPress: _showRecordingModeSelector,
       child: Container(
         height: 120,
         decoration: BoxDecoration(

@@ -24,9 +24,41 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createTables,
+      onUpgrade: _upgradeTables,
     );
+  }
+
+  Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // 添加is_voice_note字段到录音表
+      try {
+        await db.execute('ALTER TABLE recordings ADD COLUMN is_voice_note INTEGER DEFAULT 0');
+      } catch (e) {
+        print('升级数据库失败（可能字段已存在）: $e');
+      }
+
+      // 添加事项追踪表
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS tracked_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            source_id INTEGER,
+            source_type TEXT,
+            created_at INTEGER NOT NULL,
+            last_activity_at INTEGER NOT NULL,
+            is_stalled INTEGER DEFAULT 0,
+            is_completed INTEGER DEFAULT 0,
+            completed_at INTEGER
+          )
+        ''');
+      } catch (e) {
+        print('创建事项追踪表失败: $e');
+      }
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -42,6 +74,7 @@ class DatabaseService {
         summary TEXT,
         tags TEXT,
         is_processed INTEGER DEFAULT 0,
+        is_voice_note INTEGER DEFAULT 0,
         latitude REAL,
         longitude REAL,
         location_name TEXT
@@ -152,6 +185,22 @@ class DatabaseService {
         source_id INTEGER,
         is_completed INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
+        completed_at INTEGER
+      )
+    ''');
+
+    // 事项追踪表
+    await db.execute('''
+      CREATE TABLE tracked_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        source_id INTEGER,
+        source_type TEXT,
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER NOT NULL,
+        is_stalled INTEGER DEFAULT 0,
+        is_completed INTEGER DEFAULT 0,
         completed_at INTEGER
       )
     ''');
