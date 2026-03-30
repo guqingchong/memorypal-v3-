@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/notification_service.dart';
 import '../services/database_service.dart';
+import '../services/backup_service.dart';
+import '../services/kimi_service.dart';
+import '../services/recording_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,10 +15,29 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _notificationService = NotificationService();
   final _databaseService = DatabaseService();
+  final _backupService = BackupService();
+  final _kimiService = KimiService();
+  final _recordingService = RecordingService();
 
+  // 设置状态
   bool _notificationsEnabled = true;
   bool _autoRecording = false;
   bool _darkMode = false;
+  bool _cloudAnalysis = true;
+  bool _nightAnalysis = true;
+  bool _locationBased = true;
+  int _maxSuggestionsPerDay = 3;
+  int _recordingRetentionDays = 30;
+  String _dailySummaryTime = '08:00';
+  String _recordingQuality = '标准';
+  double _monthlyBudget = 0;
+
+  // AI设置
+  String? _kimiApiKey;
+
+  bool _isLoading = true;
+  bool _isExporting = false;
+  bool _isImporting = false;
 
   @override
   void initState() {
@@ -24,142 +46,139 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    // TODO: 从SharedPreferences加载设置
+    try {
+      final settings = await _databaseService.getSettings();
+      setState(() {
+        _notificationsEnabled = true; // 通知权限单独管理
+        _autoRecording = false; // 需要实现
+        _cloudAnalysis = settings['enable_cloud_analysis'] == 1;
+        _nightAnalysis = settings['night_analysis_enabled'] == 1;
+        _locationBased = settings['allow_location_based'] == 1;
+        _maxSuggestionsPerDay = settings['max_suggestions_per_day'] ?? 3;
+        _recordingRetentionDays = settings['recording_retention_days'] ?? 30;
+        _dailySummaryTime = settings['daily_summary_time'] ?? '08:00';
+        _monthlyBudget = settings['monthly_api_budget'] ?? 0.0;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置'),
-      ),
-      body: ListView(
-        children: [
-          // 通知设置
-          _buildSection('通知设置', [
-            SwitchListTile(
-              title: const Text('启用通知'),
-              subtitle: const Text('接收智能提醒和待办事项通知'),
-              value: _notificationsEnabled,
-              onChanged: (value) {
-                setState(() => _notificationsEnabled = value);
-              },
-            ),
-          ]),
-
-          // 录音设置
-          _buildSection('录音设置', [
-            SwitchListTile(
-              title: const Text('自动环境录音'),
-              subtitle: const Text('在特定时间段自动开始录音'),
-              value: _autoRecording,
-              onChanged: (value) {
-                setState(() => _autoRecording = value);
-              },
-            ),
-            ListTile(
-              title: const Text('录音质量'),
-              trailing: DropdownButton<String>(
-                value: '标准',
-                items: ['低', '标准', '高'].map((e) =>
-                  DropdownMenuItem(value: e, child: Text(e))
-                ).toList(),
-                onChanged: (value) {},
-              ),
-            ),
-          ]),
-
-          // AI设置
-          _buildSection('AI设置', [
-            ListTile(
-              title: const Text('AI模型'),
-              subtitle: const Text('配置AI分析接口'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                // TODO: 打开AI配置页面
-              },
-            ),
-            ListTile(
-              title: const Text('置信度阈值'),
-              subtitle: const Text('设置AI识别置信度'),
-              trailing: const Text('0.7'),
-              onTap: () {},
-            ),
-          ]),
-
-          // 数据管理
-          _buildSection('数据管理', [
-            ListTile(
-              title: const Text('导出所有数据'),
-              leading: const Icon(Icons.download),
-              onTap: _exportData,
-            ),
-            ListTile(
-              title: const Text('导入数据'),
-              leading: const Icon(Icons.upload),
-              onTap: _importData,
-            ),
-            ListTile(
-              title: const Text('清除所有数据', style: TextStyle(color: Colors.red)),
-              leading: const Icon(Icons.delete_forever, color: Colors.red),
-              onTap: _clearAllData,
-            ),
-          ]),
-
-          // 关于
-          _buildSection('关于', [
-            const ListTile(
-              title: Text('版本'),
-              trailing: Text('1.0.0'),
-            ),
-            ListTile(
-              title: const Text('隐私政策'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-            ListTile(
-              title: const Text('使用条款'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-          ]),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSection(String title, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ),
-        ...children,
-        const Divider(),
-      ],
-    );
+  Future<void> _saveSettings() async {
+    await _databaseService.updateSettings({
+      'enable_cloud_analysis': _cloudAnalysis ? 1 : 0,
+      'night_analysis_enabled': _nightAnalysis ? 1 : 0,
+      'allow_location_based': _locationBased ? 1 : 0,
+      'max_suggestions_per_day': _maxSuggestionsPerDay,
+      'recording_retention_days': _recordingRetentionDays,
+      'daily_summary_time': _dailySummaryTime,
+      'monthly_api_budget': _monthlyBudget,
+    });
   }
 
   Future<void> _exportData() async {
-    // TODO: 实现数据导出
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('数据导出功能开发中')),
+    setState(() => _isExporting = true);
+
+    final password = await _showPasswordDialog('设置备份密码（可选）');
+    if (password == null) {
+      setState(() => _isExporting = false);
+      return;
+    }
+
+    final backupPath = await _backupService.exportBackup(
+      password: password.isEmpty ? null : password,
     );
+
+    setState(() => _isExporting = false);
+
+    if (backupPath != null) {
+      await _backupService.shareBackup(backupPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('备份文件已保存')),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('备份失败'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _importData() async {
-    // TODO: 实现数据导入
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('数据导入功能开发中')),
+    setState(() => _isImporting = true);
+
+    final password = await _showPasswordDialog('如果备份有密码，请输入');
+    if (password == null) {
+      setState(() => _isImporting = false);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认恢复'),
+        content: const Text('恢复备份将覆盖当前所有数据。建议先导出当前数据作为备份。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('确认恢复', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final success = await _backupService.pickAndRestoreBackup(
+        password: password.isEmpty ? null : password,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? '数据恢复成功，请重启应用' : '恢复失败'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    }
+
+    setState(() => _isImporting = false);
+  }
+
+  Future<String?> _showPasswordDialog(String title) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            hintText: '留空表示无密码',
+            labelText: '密码',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -184,10 +203,420 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (confirmed == true) {
-      // TODO: 清除所有数据
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('所有数据已清除')),
+      await _backupService.clearAllData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('所有数据已清除')),
+        );
+      }
+    }
+  }
+
+  Future<void> _configureKimiApi() async {
+    final controller = TextEditingController(text: _kimiApiKey);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('配置 Kimi API'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                hintText: '从 moonshot.cn 获取',
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'API Key仅存储在本地，用于云端AI分析。不使用云端时可留空。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() => _kimiApiKey = result);
+      _kimiService.setApiKey(result);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('API Key已保存')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
       );
     }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('设置'),
+      ),
+      body: ListView(
+        children: [
+          // 通知设置
+          _buildSection('通知设置', [
+            SwitchListTile(
+              title: const Text('启用通知'),
+              subtitle: const Text('接收智能提醒和待办事项通知'),
+              value: _notificationsEnabled,
+              onChanged: (value) async {
+                setState(() => _notificationsEnabled = value);
+                if (value) {
+                  // 请求通知权限
+                }
+              },
+            ),
+            ListTile(
+              title: const Text('每日摘要时间'),
+              subtitle: Text('当前: $_dailySummaryTime'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTimePicker(),
+            ),
+            ListTile(
+              title: const Text('每日AI建议上限'),
+              subtitle: Text('$_maxSuggestionsPerDay 次'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showSuggestionsDialog(),
+            ),
+          ]),
+
+          // 录音设置
+          _buildSection('录音设置', [
+            SwitchListTile(
+              title: const Text('自动环境录音'),
+              subtitle: const Text('启动后自动开始24小时环境录音'),
+              value: _autoRecording,
+              onChanged: (value) {
+                setState(() => _autoRecording = value);
+                if (value) {
+                  _recordingService.startBackgroundRecording();
+                } else {
+                  _recordingService.stopBackgroundRecording();
+                }
+              },
+            ),
+            ListTile(
+              title: const Text('录音质量'),
+              trailing: DropdownButton<String>(
+                value: _recordingQuality,
+                underline: const SizedBox(),
+                items: ['低', '标准', '高'].map((e) =>
+                  DropdownMenuItem(value: e, child: Text(e))
+                ).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _recordingQuality = value);
+                  }
+                },
+              ),
+            ),
+            ListTile(
+              title: const Text('录音保留期限'),
+              subtitle: Text('$_recordingRetentionDays 天后自动删除'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showRetentionDialog(),
+            ),
+          ]),
+
+          // AI设置
+          _buildSection('AI设置', [
+            ListTile(
+              title: const Text('AI模型 (Kimi API)'),
+              subtitle: Text(_kimiApiKey != null ? '已配置' : '未配置'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _configureKimiApi,
+            ),
+            SwitchListTile(
+              title: const Text('启用云端分析'),
+              subtitle: const Text('夜间充电时进行深度AI分析'),
+              value: _cloudAnalysis,
+              onChanged: (value) {
+                setState(() => _cloudAnalysis = value);
+                _kimiService.setEnabled(value);
+                _saveSettings();
+              },
+            ),
+            SwitchListTile(
+              title: const Text('夜间分析'),
+              subtitle: const Text('23:00-06:00期间进行分析'),
+              value: _nightAnalysis,
+              onChanged: (value) {
+                setState(() => _nightAnalysis = value);
+                _saveSettings();
+              },
+            ),
+            ListTile(
+              title: const Text('月度API预算'),
+              subtitle: Text(_monthlyBudget > 0 ? '¥$_monthlyBudget' : '无限制'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showBudgetDialog(),
+            ),
+          ]),
+
+          // 位置设置
+          _buildSection('位置设置', [
+            SwitchListTile(
+              title: const Text('基于位置的建议'),
+              subtitle: const Text('根据位置提供智能提醒'),
+              value: _locationBased,
+              onChanged: (value) {
+                setState(() => _locationBased = value);
+                _saveSettings();
+              },
+            ),
+          ]),
+
+          // 数据管理
+          _buildSection('数据管理', [
+            ListTile(
+              title: const Text('导出所有数据'),
+              subtitle: const Text('创建加密备份文件'),
+              leading: const Icon(Icons.download),
+              trailing: _isExporting
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.chevron_right),
+              onTap: _isExporting ? null : _exportData,
+            ),
+            ListTile(
+              title: const Text('导入数据'),
+              subtitle: const Text('从备份文件恢复'),
+              leading: const Icon(Icons.upload),
+              trailing: _isImporting
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.chevron_right),
+              onTap: _isImporting ? null : _importData,
+            ),
+            ListTile(
+              title: const Text('清除所有数据', style: TextStyle(color: Colors.red)),
+              subtitle: const Text('删除所有录音、笔记和设置'),
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              onTap: _clearAllData,
+            ),
+          ]),
+
+          // 关于
+          _buildSection('关于', [
+            const ListTile(
+              title: Text('版本'),
+              trailing: Text('1.0.0'),
+            ),
+            ListTile(
+              title: const Text('隐私政策'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showPrivacyPolicy(),
+            ),
+            ListTile(
+              title: const Text('使用条款'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTermsOfService(),
+            ),
+          ]),
+
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
+        ...children,
+        const Divider(),
+      ],
+    );
+  }
+
+  Future<void> _showTimePicker() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.parse(_dailySummaryTime.split(':')[0]),
+        minute: int.parse(_dailySummaryTime.split(':')[1]),
+      ),
+    );
+    if (time != null) {
+      setState(() {
+        _dailySummaryTime = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+      });
+      _saveSettings();
+    }
+  }
+
+  Future<void> _showSuggestionsDialog() async {
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('每日AI建议上限'),
+        children: [1, 2, 3, 5, 10].map((n) => SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, n),
+          child: Text('$n 次'),
+        )).toList(),
+      ),
+    );
+    if (result != null) {
+      setState(() => _maxSuggestionsPerDay = result);
+      _saveSettings();
+    }
+  }
+
+  Future<void> _showRetentionDialog() async {
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('录音保留期限'),
+        children: [7, 14, 30, 60, 90].map((n) => SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, n),
+          child: Text('$n 天'),
+        )).toList(),
+      ),
+    );
+    if (result != null) {
+      setState(() => _recordingRetentionDays = result);
+      _saveSettings();
+    }
+  }
+
+  Future<void> _showBudgetDialog() async {
+    final controller = TextEditingController(
+      text: _monthlyBudget > 0 ? _monthlyBudget.toString() : '',
+    );
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('月度API预算'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: '预算（元）',
+            hintText: '0表示无限制',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 0.0),
+            child: const Text('无限制'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, double.tryParse(controller.text) ?? 0),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      setState(() => _monthlyBudget = result);
+      _saveSettings();
+    }
+  }
+
+  void _showPrivacyPolicy() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('隐私政策'),
+        content: const SingleChildScrollView(
+          child: Text('''
+MemoryPal 隐私政策
+
+1. 数据存储
+• 所有数据（录音、笔记、画像）仅存储在本地设备
+• 不使用云端服务器存储用户数据
+• 可选的云端AI分析仅传输文本摘要
+
+2. 权限使用
+• 麦克风：用于录音功能
+• 位置：用于基于位置的建议
+• 通知：用于待办提醒
+
+3. 用户控制
+• 可随时导出或删除所有数据
+• 可完全禁用云端功能，纯离线使用
+• 可随时撤销权限
+
+4. 第三方服务
+• 云端分析使用Kimi API（可选）
+• 反向地理编码使用高德/百度API（可选）
+
+我们尊重你的隐私，你的数据永远属于你。
+          '''),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('了解'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTermsOfService() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('使用条款'),
+        content: const SingleChildScrollView(
+          child: Text('''
+MemoryPal 使用条款
+
+1. 服务说明
+MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理信息。
+
+2. 用户责任
+• 合法使用本应用
+• 不用于侵犯他人隐私
+• 自行备份重要数据
+
+3. 免责声明
+• 应用按"原样"提供，不作任何担保
+• 因设备问题导致的数据丢失不承担责任
+• AI分析结果仅供参考
+
+4. 知识产权
+应用及相关技术归开发者所有。
+          '''),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('了解'),
+          ),
+        ],
+      ),
+    );
   }
 }

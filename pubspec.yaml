@@ -64,6 +64,12 @@ dependencies:
   # HTTP请求
   dio: ^5.4.0
 
+  # 备份压缩
+  archive: ^3.4.10
+
+  # 加密
+  crypto: ^3.0.3
+
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 

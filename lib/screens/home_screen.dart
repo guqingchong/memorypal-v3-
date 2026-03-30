@@ -7,7 +7,7 @@ import '../services/note_service.dart';
 import '../utils/permission_manager.dart';
 import '../services/file_import_service.dart';
 import 'note_list_screen.dart';
-import 'search_screen.dart';
+import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'text_note_editor_screen.dart';
 import 'settings_screen.dart';
@@ -28,7 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _screens = const [
     _HomeContent(),
     NoteListScreen(),
-    SearchScreen(),
+    ChatScreen(),
     ProfileScreen(),
   ];
 
@@ -47,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: '首页'),
           BottomNavigationBarItem(icon: Icon(Icons.edit_note), label: '笔记'),
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: '搜索'),
+          BottomNavigationBarItem(icon: Icon(Icons.psychology), label: '助理'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: '我的'),
         ],
       ),
@@ -278,30 +278,75 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildAssistantMessages() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '今日助理消息',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildMessageItem(Icons.lightbulb, '记得今晚准备明天的汇报', Colors.yellow),
-                const Divider(),
-                _buildMessageItem(Icons.check_circle, '你有2个待办事项今天到期', Colors.green),
-                const Divider(),
-                _buildMessageItem(Icons.wb_sunny, '早安！今天有3个会议', Colors.orange),
-              ],
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _databaseService.getTodos(includeCompleted: false),
+      builder: (context, todoSnapshot) {
+        final pendingTodos = todoSnapshot.data ?? [];
+        final todayTodos = pendingTodos.where((t) {
+          final deadline = t['deadline'] as int?;
+          if (deadline == null) return false;
+          final date = DateTime.fromMillisecondsSinceEpoch(deadline);
+          final now = DateTime.now();
+          return date.year == now.year && date.month == now.month && date.day == now.day;
+        }).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '今日助理消息',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-          ),
-        ),
-      ],
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (todayTodos.isNotEmpty) ...[
+                      _buildMessageItem(
+                        Icons.check_circle,
+                        '你有 ${todayTodos.length} 个待办事项今天到期',
+                        Colors.orange,
+                      ),
+                      const Divider(),
+                    ],
+                    if (pendingTodos.isNotEmpty) ...[
+                      _buildMessageItem(
+                        Icons.task_alt,
+                        '共有 ${pendingTodos.length} 个待办事项等待处理',
+                        Colors.blue,
+                      ),
+                      const Divider(),
+                    ],
+                    if (_recentRecordings.isEmpty && _recentNotes.isEmpty)
+                      _buildMessageItem(
+                        Icons.wb_sunny,
+                        '早安！今天还没有记录，开始记录你的生活吧',
+                        Colors.orange,
+                      )
+                    else
+                      _buildMessageItem(
+                        Icons.lightbulb,
+                        '今天已记录 ${_recentRecordings.length} 条录音、${_recentNotes.length} 条笔记',
+                        Colors.green,
+                      ),
+                    if (todayTodos.isEmpty && pendingTodos.isEmpty && _recentRecordings.isEmpty && _recentNotes.isEmpty) ...[
+                      const Divider(),
+                      _buildMessageItem(
+                        Icons.psychology,
+                        '试试对我说："我最近有什么待办？"',
+                        Colors.purple,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
