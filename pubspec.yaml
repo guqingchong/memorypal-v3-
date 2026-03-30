@@ -52,6 +52,12 @@ dependencies:
   # 本地通知
   flutter_local_notifications: ^17.0.0
 
+  # 文件选择
+  file_picker: ^6.2.1
+
+  # 图片选择
+  image_picker: ^1.0.7
+
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 

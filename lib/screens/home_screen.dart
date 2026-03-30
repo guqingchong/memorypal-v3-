@@ -4,6 +4,7 @@ import '../models/note.dart';
 import '../services/recording_service.dart';
 import '../services/database_service.dart';
 import '../services/note_service.dart';
+import '../utils/permission_manager.dart';
 import 'note_list_screen.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
@@ -109,6 +110,17 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Future<void> _toggleRecording() async {
+    // 先申请麦克风权限
+    final hasPermission = await PermissionManager().checkMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限才能录音')),
+        );
+      }
+      return;
+    }
+
     if (_isRecording) {
       await _recordingService.stopRecording();
     } else {
