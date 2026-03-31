@@ -76,18 +76,35 @@ class _AppInitializerState extends State<AppInitializer> {
   }
 
   Future<void> _initializeApp() async {
-    // 初始化通知服务
-    await NotificationService().initialize();
+    // 初始化通知服务（失败不阻塞）
+    try {
+      await NotificationService().initialize();
+    } catch (e) {
+      print('通知服务初始化失败: $e');
+    }
 
-    // 初始化定时任务调度器
-    await SchedulerService().initialize();
+    // 初始化定时任务调度器（失败不阻塞）
+    try {
+      await SchedulerService().initialize();
+    } catch (e) {
+      print('调度器初始化失败: $e');
+    }
 
-    // 初始化智能提醒引擎
-    await SmartReminderEngine().initialize();
+    // 初始化智能提醒引擎（失败不阻塞）
+    try {
+      await SmartReminderEngine().initialize();
+    } catch (e) {
+      print('提醒引擎初始化失败: $e');
+    }
 
     // 检查是否首次启动
-    final prefs = await SharedPreferences.getInstance();
-    _isFirstLaunch = prefs.getBool('hasSeenOnboarding') != true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _isFirstLaunch = prefs.getBool('hasSeenOnboarding') != true;
+    } catch (e) {
+      print('读取首选项失败: $e');
+      _isFirstLaunch = true;
+    }
 
     await Future.delayed(const Duration(milliseconds: 500));
 

@@ -21,11 +21,16 @@ class SchedulerService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    await _notificationService.initialize();
-    _setupTimers();
+    try {
+      await _notificationService.initialize();
+      _setupTimers();
 
-    _initialized = true;
-    debugPrint('SchedulerService 初始化完成');
+      _initialized = true;
+      debugPrint('SchedulerService 初始化完成');
+    } catch (e) {
+      debugPrint('SchedulerService 初始化失败: $e');
+      // 不阻塞应用启动
+    }
   }
 
   /// 设置定时器

@@ -20,36 +20,45 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // 初始化时区数据
-    tz_data.initializeTimeZones();
+    try {
+      // 初始化时区数据（某些设备可能失败）
+      tz_data.initializeTimeZones();
+    } catch (e) {
+      print('时区初始化失败: $e');
+      // 继续执行，不阻塞应用启动
+    }
 
-    // Android初始化设置
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    try {
+      // Android初始化设置
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // iOS初始化设置
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
+      // iOS初始化设置
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
 
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
 
-    await _notifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: (response) {
-        onNotificationTap?.call(response.payload ?? '');
-      },
-    );
+      await _notifications.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (response) {
+          onNotificationTap?.call(response.payload ?? '');
+        },
+      );
 
-    // 创建通知渠道（Android 8.0+）
-    await _createNotificationChannels();
+      // 创建通知渠道（Android 8.0+）
+      await _createNotificationChannels();
 
-    _initialized = true;
-  }
+      _initialized = true;
+    } catch (e) {
+      print('通知服务初始化失败: $e');
+      // 不阻塞应用启动，通知功能可能不可用
+    }
 
   /// 创建通知渠道
   Future<void> _createNotificationChannels() async {

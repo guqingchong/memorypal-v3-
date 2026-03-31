@@ -31,7 +31,11 @@ class RecordingService {
 
   // 初始化
   Future<void> initialize() async {
-    _channel.setMethodCallHandler(_handleMethodCall);
+    try {
+      _channel.setMethodCallHandler(_handleMethodCall);
+    } catch (e) {
+      print('录音服务初始化失败: $e');
+    }
   }
 
   // 处理原生层回调

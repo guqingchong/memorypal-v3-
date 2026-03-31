@@ -27,13 +27,18 @@ class SmartReminderEngine {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // 每30分钟检查一次上下文
-    _contextCheckTimer = Timer.periodic(const Duration(minutes: 30), (_) {
-      _analyzeContextAndRemind();
-    });
+    try {
+      // 每30分钟检查一次上下文
+      _contextCheckTimer = Timer.periodic(const Duration(minutes: 30), (_) {
+        _analyzeContextAndRemind();
+      });
 
-    _initialized = true;
-    debugPrint('SmartReminderEngine 初始化完成');
+      _initialized = true;
+      debugPrint('SmartReminderEngine 初始化完成');
+    } catch (e) {
+      debugPrint('SmartReminderEngine 初始化失败: $e');
+      // 不阻塞应用启动
+    }
   }
 
   /// 分析上下文并生成提醒
