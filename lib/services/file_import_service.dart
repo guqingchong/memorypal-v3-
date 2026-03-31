@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:pdf_text/pdf_text.dart';
 import 'package:docx_to_text/docx_to_text.dart';
 import 'database_service.dart';
 
