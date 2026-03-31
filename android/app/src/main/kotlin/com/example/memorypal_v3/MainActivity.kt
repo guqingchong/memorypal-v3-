@@ -5,14 +5,18 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.annotation.NonNull
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.example.memorypal.whisper.WhisperPlugin
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.Manifest
 
 class MainActivity : FlutterActivity() {
     private val RECORDING_CHANNEL = "com.memorypal/recording"
@@ -22,6 +26,10 @@ class MainActivity : FlutterActivity() {
 
     private var callStateReceiver: BroadcastReceiver? = null
     private var callStateMethodChannel: MethodChannel? = null
+
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 1001
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -145,13 +153,56 @@ class MainActivity : FlutterActivity() {
      * 启动通话状态监听服务
      */
     private fun startCallStateService() {
-        val intent = Intent(this, CallStateService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        // 检查 READ_PHONE_STATE 权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
+                // 请求权限
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.READ_PHONE_STATE),
+                    PERMISSION_REQUEST_CODE
+                )
+                Log.d("MainActivity", "Requesting READ_PHONE_STATE permission")
+                return
+            }
         }
-        Log.d("MainActivity", "CallStateService started")
+
+        // 权限已授予，启动服务
+        startCallStateServiceInternal()
+    }
+
+    private fun startCallStateServiceInternal() {
+        try {
+            val intent = Intent(this, CallStateService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Log.d("MainActivity", "CallStateService started")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start CallStateService: ${e.message}")
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MainActivity", "READ_PHONE_STATE permission granted")
+                // 权限已授予，现在启动服务
+                startCallStateServiceInternal()
+            } else {
+                Log.w("MainActivity", "READ_PHONE_STATE permission denied")
+                // 权限被拒绝，不启动服务（应用仍可正常使用其他功能）
+            }
+        }
     }
 
     override fun onDestroy() {

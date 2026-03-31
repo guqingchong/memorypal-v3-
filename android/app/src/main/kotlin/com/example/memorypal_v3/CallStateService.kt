@@ -1,13 +1,22 @@
 package com.example.memorypal_v3
 
 import android.app.Service
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.IBinder
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import android.Manifest
 
 /**
  * 通话状态监听服务
@@ -20,6 +29,8 @@ class CallStateService : Service() {
     companion object {
         const val TAG = "CallStateService"
         const val CHANNEL_NAME = "com.memorypal/call_state"
+        const val NOTIFICATION_CHANNEL_ID = "call_state_service"
+        const val NOTIFICATION_ID = 2001
 
         // 通话状态
         const val CALL_STATE_IDLE = 0      // 空闲
@@ -48,12 +59,57 @@ class CallStateService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "CallStateService created")
-        initPhoneStateListener()
+
+        // 立即启动前台服务（必须在5秒内完成）
+        startForeground(NOTIFICATION_ID, createNotification())
+
+        // 延迟初始化电话监听器，避免权限问题导致崩溃
+        Handler(Looper.getMainLooper()).post {
+            initPhoneStateListener()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "CallStateService started")
         return START_STICKY
+    }
+
+    /**
+     * 创建前台服务通知
+     */
+    private fun createNotification(): Notification {
+        val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            createNotificationChannel()
+        } else {
+            NOTIFICATION_CHANNEL_ID
+        }
+
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("MemoryPal")
+            .setContentText("通话状态监听中...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+
+    /**
+     * 创建通知渠道（Android 8.0+）
+     */
+    private fun createNotificationChannel(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "通话状态服务",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "监听通话状态以配合录音功能"
+            }
+
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+        return NOTIFICATION_CHANNEL_ID
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -67,45 +123,66 @@ class CallStateService : Service() {
     }
 
     private fun initPhoneStateListener() {
-        telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-
-        phoneStateListener = object : PhoneStateListener() {
-            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                super.onCallStateChanged(state, phoneNumber)
-
-                when (state) {
-                    TelephonyManager.CALL_STATE_IDLE -> {
-                        Log.d(TAG, "Call state: IDLE")
-                        if (wasInCall) {
-                            // 通话刚结束
-                            onCallEnded()
-                            wasInCall = false
-                        }
-                        lastCallState = CALL_STATE_IDLE
-                    }
-
-                    TelephonyManager.CALL_STATE_RINGING -> {
-                        Log.d(TAG, "Call state: RINGING, number: $phoneNumber")
-                        onCallRinging(phoneNumber)
-                        lastCallState = CALL_STATE_RINGING
-                    }
-
-                    TelephonyManager.CALL_STATE_OFFHOOK -> {
-                        Log.d(TAG, "Call state: OFFHOOK")
-                        if (lastCallState == CALL_STATE_RINGING || lastCallState == CALL_STATE_IDLE) {
-                            // 开始通话（接听或拨打）
-                            onCallStarted(phoneNumber)
-                            wasInCall = true
-                            callStartTime = System.currentTimeMillis()
-                        }
-                        lastCallState = CALL_STATE_OFFHOOK
-                    }
-                }
+        // 检查 READ_PHONE_STATE 权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "READ_PHONE_STATE permission not granted, cannot listen to call state")
+                // 权限未授予，停止服务
+                stopSelf()
+                return
             }
         }
 
-        // 注册监听器
-        telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
+        try {
+            telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+
+            phoneStateListener = object : PhoneStateListener() {
+                override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                    super.onCallStateChanged(state, phoneNumber)
+
+                    when (state) {
+                        TelephonyManager.CALL_STATE_IDLE -> {
+                            Log.d(TAG, "Call state: IDLE")
+                            if (wasInCall) {
+                                // 通话刚结束
+                                onCallEnded()
+                                wasInCall = false
+                            }
+                            lastCallState = CALL_STATE_IDLE
+                        }
+
+                        TelephonyManager.CALL_STATE_RINGING -> {
+                            Log.d(TAG, "Call state: RINGING, number: $phoneNumber")
+                            onCallRinging(phoneNumber)
+                            lastCallState = CALL_STATE_RINGING
+                        }
+
+                        TelephonyManager.CALL_STATE_OFFHOOK -> {
+                            Log.d(TAG, "Call state: OFFHOOK")
+                            if (lastCallState == CALL_STATE_RINGING || lastCallState == CALL_STATE_IDLE) {
+                                // 开始通话（接听或拨打）
+                                onCallStarted(phoneNumber)
+                                wasInCall = true
+                                callStartTime = System.currentTimeMillis()
+                            }
+                            lastCallState = CALL_STATE_OFFHOOK
+                        }
+                    }
+                }
+            }
+
+            // 注册监听器
+            telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
+            Log.d(TAG, "Phone state listener registered successfully")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException when registering phone state listener: ${e.message}")
+            // 权限问题，停止服务
+            stopSelf()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing phone state listener: ${e.message}")
+            stopSelf()
+        }
     }
 
     /**
