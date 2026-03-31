@@ -24,7 +24,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 4,  // 升级到版本4，添加file_name和source字段
+      version: 5,  // 升级到版本5，添加imported_files表
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -83,6 +83,25 @@ class DatabaseService {
         print('数据库升级：添加source字段到recordings表');
       } catch (e) {
         print('添加source字段失败（可能已存在）: $e');
+      }
+    }
+
+    if (oldVersion < 5) {
+      // 版本5：添加imported_files表
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS imported_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            extracted_text TEXT,
+            imported_at INTEGER NOT NULL
+          )
+        ''');
+        print('数据库升级：创建imported_files表');
+      } catch (e) {
+        print('创建imported_files表失败: $e');
       }
     }
   }
@@ -231,6 +250,18 @@ class DatabaseService {
         is_stalled INTEGER DEFAULT 0,
         is_completed INTEGER DEFAULT 0,
         completed_at INTEGER
+      )
+    ''');
+
+    // 导入文件表
+    await db.execute('''
+      CREATE TABLE imported_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        extracted_text TEXT,
+        imported_at INTEGER NOT NULL
       )
     ''');
 
