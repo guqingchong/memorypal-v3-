@@ -183,7 +183,6 @@ Java_com_example_memorypal_whisper_WhisperPlugin_nativeTranscribe(
     wparams.duration_ms = 0;
     wparams.token_timestamps = false;
     wparams.suppress_blank = true;
-    wparams.suppress_non_speech_tokens = true;
 
     LOGD("Running whisper_full with %zu samples", pcmf32.size());
 
