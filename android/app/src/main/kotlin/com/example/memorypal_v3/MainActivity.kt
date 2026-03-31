@@ -1,18 +1,15 @@
 package com.example.memorypal_v3
 
 import android.app.ActivityManager
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.os.Bundle
-import androidx.annotation.NonNull
-import com.example.memorypal.whisper.WhisperPlugin
-import android.content.Intent
-import android.os.Build
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
+import android.os.Bundle
 import android.util.Log
+import androidx.annotation.NonNull
+import com.example.memorypal.whisper.WhisperPlugin
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
