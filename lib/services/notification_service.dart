@@ -59,6 +59,7 @@ class NotificationService {
       print('通知服务初始化失败: $e');
       // 不阻塞应用启动，通知功能可能不可用
     }
+  }
 
   /// 创建通知渠道
   Future<void> _createNotificationChannels() async {
