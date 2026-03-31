@@ -224,44 +224,6 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     });
   }
 
-  // 从转写文本中选择内容
-  void _showSelectionMenu() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.task_alt, color: Colors.blue),
-              title: const Text('创建待办'),
-              subtitle: Text(
-                '从选中内容: "${_selectedText?.substring(0, _selectedText!.length > 20 ? 20 : _selectedText!.length)}${_selectedText!.length > 20 ? '...' : ''}"',
-                style: const TextStyle(fontSize: 12),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _showCreateTodoDialog(initialContent: _selectedText);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.content_copy, color: Colors.grey),
-              title: const Text('复制选中内容'),
-              onTap: () {
-                Navigator.pop(context);
-                // 复制到剪贴板
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制到剪贴板')),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
   // 请求云端转写
   Future<void> _requestCloudTranscription() async {
     if (widget.recording.filePath.isEmpty) return;

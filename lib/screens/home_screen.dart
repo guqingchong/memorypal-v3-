@@ -3,7 +3,6 @@ import '../models/recording.dart';
 import '../models/note.dart';
 import '../services/recording_service.dart';
 import '../services/database_service.dart';
-import '../services/note_service.dart';
 import '../utils/permission_manager.dart';
 import '../services/file_import_service.dart';
 import 'note_list_screen.dart';

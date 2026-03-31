@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/user_profile.dart';
 import 'database_service.dart';
@@ -18,6 +19,9 @@ class SmartReminderEngine {
   Timer? _contextCheckTimer;
 
   // 上下文状态
+  DateTime? _lastActivityTime;
+  String? _lastLocation;
+  int _consecutiveChecksWithoutActivity = 0;
 
   /// 初始化引擎
   Future<void> initialize() async {

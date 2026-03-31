@@ -5,7 +5,6 @@ import 'package:path_provider/path_provider.dart';
 import '../models/recording.dart';
 import 'database_service.dart';
 import 'location_service.dart';
-import 'transcription_service.dart';
 
 // 录音服务 - 与原生层通信
 class RecordingService {
