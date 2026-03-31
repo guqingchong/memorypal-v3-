@@ -6,8 +6,6 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      android_signing:
-        - keystore_reference
     cache:
       cache_paths:
         - ~/.pub-cache
@@ -30,8 +28,8 @@ workflows:
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
           ls -lh whisper.cpp/
 
-      - name: Build APK
-        script: flutter build apk --release --split-per-abi
+      - name: Build APK (debug)
+        script: flutter build apk --debug
 
     artifacts:
       - build/app/outputs/flutter-apk/*
