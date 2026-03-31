@@ -87,33 +87,17 @@ class FileImportService {
     }
   }
 
-  /// 从PDF提取文本
+  /// 从PDF提取文本（暂禁用，等待pdf_text插件更新）
   Future<String> _extractFromPdf(String filePath) async {
-    try {
-      final file = File(filePath);
-      if (!await file.exists()) {
-        return 'PDF文件不存在';
-      }
-
-      // 使用pdf_text库解析
-      final pdfDoc = await PDFDoc.fromPath(filePath);
-      final text = await pdfDoc.text;
-
-      if (text.trim().isEmpty) {
-        return 'PDF文件内容为空（可能是扫描件或图片PDF）';
-      }
-
-      // 限制文本长度，避免存储过大
-      final maxLength = 50000;
-      if (text.length > maxLength) {
-        return '${text.substring(0, maxLength)}\n\n[内容过长，已截断]';
-      }
-
-      return text;
-    } catch (e) {
-      print('PDF解析失败: $e');
-      return 'PDF解析失败: $e';
-    }
+    // 由于 pdf_text 插件与 Android Gradle Plugin 8.0+ 存在兼容性问题
+    // 暂时禁用 PDF 文本提取功能
+    // TODO: 寻找替代方案或等待插件更新
+    return '[PDF功能暂不可用]\n\n'
+        '由于技术兼容性问题，PDF文本提取功能暂时禁用。\n'
+        '建议：\n'
+        '1. 将PDF转换为图片后导入，使用OCR识别\n'
+        '2. 复制PDF中的文本粘贴到文字笔记\n'
+        '3. 等待后续版本更新';
   }
 
   /// 从Word文档提取文本
