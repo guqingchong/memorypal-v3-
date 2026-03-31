@@ -20,6 +20,12 @@ workflows:
       - name: Get Flutter packages
         script: flutter pub get
 
+      - name: Install CMake 3.28
+        script: |
+          # 安装更新的 CMake 版本 (macOS)
+          brew install cmake
+          cmake --version
+
       - name: Download Whisper model
         script: |
           # 下载 Whisper 模型文件
