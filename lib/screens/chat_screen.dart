@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import '../models/note.dart';
-import '../models/recording.dart';
 import '../services/database_service.dart';
 import '../services/kimi_service.dart';
 import '../services/whisper_service.dart';

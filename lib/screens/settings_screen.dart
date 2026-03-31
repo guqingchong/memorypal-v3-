@@ -15,7 +15,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _notificationService = NotificationService();
   final _databaseService = DatabaseService();
   final _backupService = BackupService();
   final _kimiService = KimiService();
@@ -25,7 +24,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 设置状态
   bool _notificationsEnabled = true;
   bool _autoRecording = false;
-  bool _darkMode = false;
   bool _cloudAnalysis = true;
   bool _nightAnalysis = true;
   bool _locationBased = true;

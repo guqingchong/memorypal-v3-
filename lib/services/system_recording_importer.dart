@@ -210,8 +210,7 @@ class SystemRecordingImporter {
           // 华为格式: 录音文件_20240331_143022.m4a
           final match = RegExp(r'(\d{8})_(\d{6})').firstMatch(fileName);
           if (match != null) {
-            final date = match.group(1);
-            final time = match.group(2);
+            // date: match.group(1), time: match.group(2)
             // 可以从其他来源获取号码
           }
           break;

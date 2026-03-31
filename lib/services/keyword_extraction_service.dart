@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'package:flutter/material.dart';
 import '../models/recording.dart';
 
 /// 关键词提取服务
@@ -30,11 +28,8 @@ class KeywordExtractionService {
     '梁', '宋', '郑', '谢', '韩', '唐', '冯', '于', '董', '萧',
   ];
 
-  // 时间相关关键词
-  static const List<String> _timeKeywords = [
-    '明天', '后天', '下周', '下月', '今天', '现在', '马上', '立即',
-    '稍后', '晚上', '上午', '下午', '中午', '早上', '傍晚',
-  ];
+  // 时间相关关键词（预留）
+  // static const List<String> _timeKeywords = [...];
 
   // 地点相关关键词
   static const List<String> _locationKeywords = [

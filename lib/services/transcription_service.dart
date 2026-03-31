@@ -26,9 +26,6 @@ class TranscriptionService {
   final _keywordService = KeywordExtractionService();
   final _whisperService = WhisperLocalService();
 
-  // 音频文件缓存
-  final Map<String, File> _audioCache = {};
-
   /// 转写音频文件
   ///
   /// 转写流程：

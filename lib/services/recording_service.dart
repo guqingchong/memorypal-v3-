@@ -17,7 +17,6 @@ class RecordingService {
 
   final _databaseService = DatabaseService();
   final _locationService = LocationService();
-  final _transcriptionService = TranscriptionService();
   Recording? _currentRecording;
   Timer? _recordingTimer;
   int _recordingSeconds = 0;

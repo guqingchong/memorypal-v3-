@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
@@ -226,17 +225,6 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   }
 
   // 从转写文本中选择内容
-  void _onTextSelected() {
-    final selection = _textSelectionController?.selection;
-    if (selection != null && !selection.isCollapsed) {
-      final text = _textSelectionController?.text ?? '';
-      _selectedText = text.substring(selection.start, selection.end);
-      if (_selectedText?.trim().isNotEmpty == true) {
-        _showSelectionMenu();
-      }
-    }
-  }
-
   void _showSelectionMenu() {
     showModalBottomSheet(
       context: context,

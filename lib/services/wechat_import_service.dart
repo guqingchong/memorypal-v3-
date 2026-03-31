@@ -15,7 +15,6 @@ class WeChatImportService {
   factory WeChatImportService() => _instance;
   WeChatImportService._internal();
 
-  final DatabaseService _databaseService = DatabaseService();
   final NotificationService _notificationService = NotificationService();
 
   // MethodChannel用于检测前台应用

@@ -18,7 +18,6 @@ class CallStateService {
   static const MethodChannel _channel = MethodChannel('com.memorypal/call_state');
 
   final DatabaseService _databaseService = DatabaseService();
-  final RecordingService _recordingService = RecordingService();
   final SystemRecordingImporter _importer = SystemRecordingImporter();
 
   // 状态流

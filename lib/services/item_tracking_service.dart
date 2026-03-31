@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../models/note.dart';
-import '../models/recording.dart';
 import 'database_service.dart';
 import 'notification_service.dart';
 

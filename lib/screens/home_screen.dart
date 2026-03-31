@@ -23,7 +23,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _recordingService = RecordingService();
-  final _databaseService = DatabaseService();
 
   int _currentIndex = 0;
 
@@ -73,7 +72,6 @@ class _HomeContent extends StatefulWidget {
 class _HomeContentState extends State<_HomeContent> {
   final _recordingService = RecordingService();
   final _databaseService = DatabaseService();
-  final _noteService = NoteService();
 
   List<Recording> _recentRecordings = [];
   List<Note> _recentNotes = [];
