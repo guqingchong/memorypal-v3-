@@ -4,6 +4,8 @@ import '../services/database_service.dart';
 import '../services/backup_service.dart';
 import '../services/kimi_service.dart';
 import '../services/recording_service.dart';
+import '../services/call_state_service.dart';
+import '../services/system_recording_importer.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _backupService = BackupService();
   final _kimiService = KimiService();
   final _recordingService = RecordingService();
+  final _callStateService = CallStateService();
 
   // 设置状态
   bool _notificationsEnabled = true;
@@ -34,6 +37,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // AI设置
   String? _kimiApiKey;
+
+  // 通话录音设置
+  bool _enableCallDetection = true;
+  bool _autoImportSystemRecordings = true;
 
   bool _isLoading = true;
   bool _isExporting = false;
@@ -58,6 +65,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _recordingRetentionDays = settings['recording_retention_days'] ?? 30;
         _dailySummaryTime = settings['daily_summary_time'] ?? '08:00';
         _monthlyBudget = settings['monthly_api_budget'] ?? 0.0;
+        // 加载通话录音设置
+        _enableCallDetection = settings['enable_call_detection'] ?? true;
+        _autoImportSystemRecordings = settings['auto_import_system_recordings'] ?? true;
         _isLoading = false;
       });
     } catch (e) {
@@ -74,7 +84,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'recording_retention_days': _recordingRetentionDays,
       'daily_summary_time': _dailySummaryTime,
       'monthly_api_budget': _monthlyBudget,
+      'enable_call_detection': _enableCallDetection,
+      'auto_import_system_recordings': _autoImportSystemRecordings,
     });
+
+    // 更新通话状态服务设置
+    await _callStateService.updateSettings(
+      enableCallDetection: _enableCallDetection,
+      autoImportSystemRecordings: _autoImportSystemRecordings,
+    );
   }
 
   Future<void> _exportData() async {
@@ -336,6 +354,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showRetentionDialog(),
             ),
+          ]),
+
+          // 通话录音设置
+          _buildSection('通话录音', [
+            SwitchListTile(
+              title: const Text('通话检测'),
+              subtitle: const Text('检测通话状态，避免与系统录音冲突'),
+              value: _enableCallDetection,
+              onChanged: (value) {
+                setState(() => _enableCallDetection = value);
+                _saveSettings();
+              },
+            ),
+            SwitchListTile(
+              title: const Text('自动导入系统录音'),
+              subtitle: const Text('通话结束后自动导入华为/小米等系统录音'),
+              value: _autoImportSystemRecordings,
+              onChanged: _enableCallDetection
+                  ? (value) {
+                      setState(() => _autoImportSystemRecordings = value);
+                      _saveSettings();
+                    }
+                  : null,
+            ),
+            ListTile(
+              title: const Text('导入历史录音'),
+              subtitle: const Text('手动扫描并导入系统通话录音'),
+              leading: const Icon(Icons.phone_in_talk),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _importSystemRecordings(),
+            ),
+            if (_enableCallDetection)
+              Container(
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline,
+                            size: 16, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          '工作原理',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '1. 通话开始时，MemoryPal 自动暂停环境录音\n'
+                      '2. 通话结束后，自动恢复环境录音\n'
+                      '3. 如开启自动导入，将导入系统通话录音并 AI 分析',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.blue.shade800,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ]),
 
           // AI设置
@@ -618,5 +707,94 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
         ],
       ),
     );
+  }
+
+  Future<void> _importSystemRecordings() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('导入系统通话录音'),
+        content: const Text(
+            '将扫描华为、小米等系统的通话录音目录，并导入到 MemoryPal 进行分析。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('开始扫描'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // 显示进度对话框
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('正在扫描系统录音...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final importer = SystemRecordingImporter();
+      final imported = await importer.scanAllSystemRecordings();
+
+      if (mounted) {
+        Navigator.pop(context); // 关闭进度对话框
+
+        if (imported.isEmpty) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('未找到录音'),
+              content: const Text('未在系统目录中找到通话录音文件。\n\n支持的机型：\n• 华为\n• 小米\n• OPPO\n• vivo\n• 三星'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          // 导入到数据库
+          for (final recording in imported) {
+            await _databaseService.insertRecording(recording);
+          }
+
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('导入成功'),
+              content: Text('已导入 ${imported.length} 条通话录音，AI 分析将在后台进行。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // 关闭进度对话框
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导入失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }

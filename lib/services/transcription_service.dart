@@ -6,14 +6,16 @@ import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import 'kimi_service.dart';
 import 'keyword_extraction_service.dart';
+import 'whisper_local_service.dart';
 
 /// 语音转写服务
 ///
-/// 支持多种转写后端：
-/// 1. 云端API（Kimi/其他）- 优先使用，准确率高
-/// 2. 本地备用（智能关键词提取）- 离线时使用，从元数据提取标签
+/// 转写架构（计划）：
+/// 1. 本地Whisper转写（待集成）- 离线语音转文字
+/// 2. Kimi云端分析 - 转写后的文本深度分析（待办提取等）
+/// 3. 本地备用（智能关键词提取）- 当前使用的降级方案
 ///
-/// 注意：真正的本地Whisper需要集成whisper.cpp原生库
+/// 注意：正在集成 whisper.cpp 本地语音转写模型
 class TranscriptionService {
   static final TranscriptionService _instance = TranscriptionService._internal();
   factory TranscriptionService() => _instance;
@@ -22,78 +24,113 @@ class TranscriptionService {
   final _kimiService = KimiService();
   final _dio = Dio();
   final _keywordService = KeywordExtractionService();
+  final _whisperService = WhisperLocalService();
 
   // 音频文件缓存
   final Map<String, File> _audioCache = {};
 
   /// 转写音频文件
   ///
+  /// 转写流程：
+  /// 1. 本地Whisper转写（语音→文字）
+  /// 2. Kimi云端分析（提取待办、摘要等）
+  /// 3. 降级：智能关键词提取
+  ///
   /// [audioPath] 音频文件路径
-  /// [useLocal] 强制使用本地转写（离线模式）
-  /// [recordingMeta] 录音元数据（用于离线模式提取关键词）
+  /// [recordingMeta] 录音元数据（用于关键词提取降级）
+  /// [skipKimiAnalysis] 是否跳过Kimi深度分析
   ///
   /// 返回转写结果，失败返回null
   Future<TranscriptionResult?> transcribe(
     String audioPath, {
-    bool useLocal = false,
     Recording? recordingMeta,
+    bool skipKimiAnalysis = false,
   }) async {
-    // 优先使用云端API
-    if (!useLocal && _kimiService.isAvailable) {
-      final result = await _transcribeWithCloud(audioPath);
-      if (result != null) return result;
+    // Step 1: 本地Whisper转写
+    var result = await _transcribeWithWhisper(audioPath);
+
+    // Step 2: 使用Kimi进行深度分析（如果Whisper成功且未跳过）
+    if (result != null && !skipKimiAnalysis && _kimiService.isAvailable) {
+      result = await _enrichWithKimi(result);
     }
 
-    // 离线模式：使用智能关键词提取
-    return await _transcribeWithLocal(audioPath, recordingMeta: recordingMeta);
+    // Step 3: 降级到关键词提取
+    if (result == null) {
+      result = await _transcribeWithLocal(audioPath, recordingMeta: recordingMeta);
+    }
+
+    return result;
   }
 
-  /// 使用云端API转写
-  Future<TranscriptionResult?> _transcribeWithCloud(String audioPath) async {
+  /// 使用本地Whisper模型转写
+  ///
+  /// 调用本地 whisper.cpp 进行语音转文字
+  /// 需要提前下载模型文件 ggml-small.bin
+  Future<TranscriptionResult?> _transcribeWithWhisper(String audioPath) async {
     try {
-      // 使用Kimi API进行语音转写
-      // 注意：Kimi API可能需要特定的音频格式和大小限制
-      final file = File(audioPath);
-      if (!await file.exists()) return null;
+      // 调用Whisper本地服务
+      final text = await _whisperService.transcribe(audioPath, language: 'zh');
 
-      // 检查文件大小（限制25MB）
-      final size = await file.length();
-      if (size > 25 * 1024 * 1024) {
-        debugPrint('音频文件过大，使用本地转写');
-        return null;
-      }
+      if (text != null && text.isNotEmpty) {
+        debugPrint('Whisper转写成功: ${text.substring(0, text.length > 50 ? 50 : text.length)}...');
 
-      // 上传音频并转写
-      final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(audioPath),
-        'model': 'whisper-1', // 或其他支持的模型
-      });
-
-      final response = await _dio.post(
-        'https://api.moonshot.cn/v1/audio/transcriptions',
-        data: formData,
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer ${_kimiService.apiKey}',
-          },
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final text = response.data['text'] as String?;
-        if (text != null && text.isNotEmpty) {
-          return TranscriptionResult(
-            text: text,
-            language: 'zh',
-            confidence: 0.9,
-            isOffline: false,
-          );
-        }
+        return TranscriptionResult(
+          text: text,
+          language: 'zh',
+          confidence: 0.85,
+          isOffline: true,
+          needsCloudTranscription: false, // Whisper已完成转写
+          audioPath: audioPath,
+          tags: ['本地转写'],
+        );
       }
     } catch (e) {
-      debugPrint('云端转写失败: $e');
+      debugPrint('Whisper转写失败: $e');
     }
+
+    // 转写失败，降级到关键词提取
+    debugPrint('Whisper转写失败，降级到关键词提取');
     return null;
+  }
+
+  /// 使用Kimi分析转写文本（提取待办、摘要等）
+  ///
+  /// 在Whisper完成基础转写后，调用Kimi进行深度分析
+  Future<TranscriptionResult?> _enrichWithKimi(TranscriptionResult whisperResult) async {
+    if (!_kimiService.isAvailable) {
+      // Kimi不可用，直接返回Whisper结果
+      return whisperResult;
+    }
+
+    try {
+      // 使用Kimi提取待办事项
+      final todos = await extractTodosFromTranscript(whisperResult.text);
+
+      // TODO: 可以在这里添加更多Kimi分析：
+      // - 生成摘要
+      // - 提取关键词
+      // - 情感分析
+      // - 主题分类
+
+      debugPrint('Kimi分析完成，提取到 ${todos.length} 个待办');
+
+      // 返回 enriched 结果
+      return TranscriptionResult(
+        text: whisperResult.text,
+        language: whisperResult.language,
+        confidence: whisperResult.confidence,
+        isOffline: whisperResult.isOffline,
+        needsCloudTranscription: false,
+        audioPath: whisperResult.audioPath,
+        tags: [...whisperResult.tags, 'AI分析'],
+        // TODO: 添加待办列表到结果
+      );
+
+    } catch (e) {
+      debugPrint('Kimi分析失败: $e');
+      // Kimi分析失败，返回原始Whisper结果
+      return whisperResult;
+    }
   }
 
   /// 使用本地方法转写（智能关键词提取版）
@@ -292,21 +329,19 @@ class TranscriptionService {
     return size > 1024;
   }
 
-  /// 批量转写离线录音
+  /// 批量转写录音（待Whisper集成后使用）
   ///
-  /// 在恢复网络后调用，转写之前离线保存的录音
-  Future<List<TranscriptionResult>> batchTranscribeOffline(
+  /// TODO: 集成本地Whisper后，可批量处理录音
+  Future<List<TranscriptionResult>> batchTranscribe(
     List<String> audioPaths,
   ) async {
     final results = <TranscriptionResult>[];
 
     for (final path in audioPaths) {
-      final result = await transcribe(path, useLocal: false);
+      final result = await transcribe(path);
       if (result != null) {
         results.add(result);
       }
-      // 添加延迟避免API限流
-      await Future.delayed(const Duration(seconds: 1));
     }
 
     return results;

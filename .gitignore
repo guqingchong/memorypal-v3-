@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Whisper models
+whisper.cpp/*.bin
+
+# Flutter/Dart
+.dart_tool/
+.packages
+build/

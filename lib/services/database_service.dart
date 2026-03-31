@@ -24,7 +24,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 3,  // 升级到版本3，添加title字段
+      version: 4,  // 升级到版本4，添加file_name和source字段
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -69,6 +69,22 @@ class DatabaseService {
         print('添加title字段失败（可能已存在）: $e');
       }
     }
+
+    if (oldVersion < 4) {
+      // 版本4：添加file_name和source字段
+      try {
+        await db.execute('ALTER TABLE recordings ADD COLUMN file_name TEXT');
+        print('数据库升级：添加file_name字段到recordings表');
+      } catch (e) {
+        print('添加file_name字段失败（可能已存在）: $e');
+      }
+      try {
+        await db.execute('ALTER TABLE recordings ADD COLUMN source TEXT DEFAULT "app"');
+        print('数据库升级：添加source字段到recordings表');
+      } catch (e) {
+        print('添加source字段失败（可能已存在）: $e');
+      }
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -77,6 +93,7 @@ class DatabaseService {
       CREATE TABLE recordings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_path TEXT NOT NULL,
+        file_name TEXT,
         start_time INTEGER NOT NULL,
         end_time INTEGER NOT NULL,
         duration_seconds INTEGER NOT NULL,
@@ -88,7 +105,8 @@ class DatabaseService {
         is_voice_note INTEGER DEFAULT 0,
         latitude REAL,
         longitude REAL,
-        location_name TEXT
+        location_name TEXT,
+        source TEXT DEFAULT 'app'
       )
     ''');
 

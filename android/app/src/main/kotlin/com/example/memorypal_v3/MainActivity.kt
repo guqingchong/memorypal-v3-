@@ -6,6 +6,13 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.annotation.NonNull
+import com.example.memorypal.whisper.WhisperPlugin
+import android.content.Intent
+import android.os.Build
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +21,10 @@ class MainActivity : FlutterActivity() {
     private val RECORDING_CHANNEL = "com.memorypal/recording"
     private val WECHAT_CHANNEL = "com.memorypal/wechat"
     private val WHISPER_CHANNEL = "com.memorypal/whisper"
+    private val CALL_STATE_CHANNEL = "com.memorypal/call_state"
+
+    private var callStateReceiver: BroadcastReceiver? = null
+    private var callStateMethodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -93,30 +104,62 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // Whisper通道（模拟实现）
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WHISPER_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "initialize" -> {
-                        // 初始化Whisper（需要集成whisper.cpp）
-                        result.success(true)
-                    }
-                    "loadModel" -> {
-                        val modelPath = call.argument<String>("modelPath")
-                        result.success(true)
-                    }
-                    "transcribe" -> {
-                        val audioPath = call.argument<String>("audioPath")
-                        // 模拟转写结果
-                        result.success(mapOf(
-                            "text" to "这是模拟的转写结果。实际集成需要whisper.cpp库。",
-                            "language" to "zh",
-                            "segments" to emptyList<Map<String, Any>>()
-                        ))
-                    }
-                    else -> result.notImplemented()
-                }
+        // 注册Whisper插件
+        WhisperPlugin.registerWith(flutterEngine)
+
+        // 通话状态监听通道
+        callStateMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_STATE_CHANNEL)
+        setupCallStateReceiver()
+        startCallStateService()
+    }
+
+    /**
+     * 设置通话状态广播接收器
+     */
+    private fun setupCallStateReceiver() {
+        callStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val state = intent.getStringExtra("state")
+                val phoneNumber = intent.getStringExtra("phoneNumber")
+                val duration = intent.getLongExtra("duration", 0)
+
+                Log.d("MainActivity", "Call state: $state, number: $phoneNumber")
+
+                // 转发到 Flutter
+                val args = hashMapOf<String, Any?>(
+                    "state" to state,
+                    "phoneNumber" to phoneNumber,
+                    "duration" to duration
+                )
+                callStateMethodChannel?.invokeMethod("onCallStateChanged", args)
             }
+        }
+
+        // 注册广播接收器
+        val filter = IntentFilter("com.memorypal.CALL_STATE_CHANGED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(callStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(callStateReceiver, filter)
+        }
+    }
+
+    /**
+     * 启动通话状态监听服务
+     */
+    private fun startCallStateService() {
+        val intent = Intent(this, CallStateService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Log.d("MainActivity", "CallStateService started")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        callStateReceiver?.let { unregisterReceiver(it) }
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {

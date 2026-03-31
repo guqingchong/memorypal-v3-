@@ -2,6 +2,7 @@
 class Recording {
   final int? id;
   final String filePath;
+  final String? fileName;  // 原始文件名
   final DateTime startTime;
   final DateTime endTime;
   final int durationSeconds;
@@ -14,12 +15,14 @@ class Recording {
   final double? longitude;
   final String? locationName;
   final bool isVoiceNote;  // 是否为语音笔记
+  final String? source;  // 来源：'app' | 'system_call' | 'imported'
 
   Recording({
     this.id,
     required this.filePath,
+    this.fileName,
     required this.startTime,
-    required this.endTime,
+    DateTime? endTime,
     required this.durationSeconds,
     this.title,  // 智能标题
     this.transcript,
@@ -30,12 +33,14 @@ class Recording {
     this.longitude,
     this.locationName,
     this.isVoiceNote = false,
-  });
+    this.source = 'app',
+  }) : endTime = endTime ?? startTime.add(Duration(seconds: durationSeconds));
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'file_path': filePath,
+      'file_name': fileName,
       'start_time': startTime.millisecondsSinceEpoch,
       'end_time': endTime.millisecondsSinceEpoch,
       'duration_seconds': durationSeconds,
@@ -48,6 +53,7 @@ class Recording {
       'longitude': longitude,
       'location_name': locationName,
       'is_voice_note': isVoiceNote ? 1 : 0,
+      'source': source,
     };
   }
 
@@ -55,6 +61,7 @@ class Recording {
     return Recording(
       id: map['id'] as int?,
       filePath: map['file_path'] as String,
+      fileName: map['file_name'] as String?,
       startTime: DateTime.fromMillisecondsSinceEpoch(map['start_time'] as int),
       endTime: DateTime.fromMillisecondsSinceEpoch(map['end_time'] as int),
       durationSeconds: map['duration_seconds'] as int,
@@ -69,12 +76,14 @@ class Recording {
       longitude: map['longitude'] as double?,
       locationName: map['location_name'] as String?,
       isVoiceNote: map['is_voice_note'] == 1,
+      source: map['source'] as String? ?? 'app',
     );
   }
 
   Recording copyWith({
     int? id,
     String? filePath,
+    String? fileName,
     DateTime? startTime,
     DateTime? endTime,
     int? durationSeconds,
@@ -87,10 +96,12 @@ class Recording {
     double? longitude,
     String? locationName,
     bool? isVoiceNote,
+    String? source,
   }) {
     return Recording(
       id: id ?? this.id,
       filePath: filePath ?? this.filePath,
+      fileName: fileName ?? this.fileName,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       durationSeconds: durationSeconds ?? this.durationSeconds,
@@ -103,6 +114,7 @@ class Recording {
       longitude: longitude ?? this.longitude,
       locationName: locationName ?? this.locationName,
       isVoiceNote: isVoiceNote ?? this.isVoiceNote,
+      source: source ?? this.source,
     );
   }
 }
