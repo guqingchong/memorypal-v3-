@@ -65,7 +65,15 @@
 
         <!-- 后台录音服务 -->
         <service
-            android:name="com.memorypal.audio.RecordingService"
+            android:name=".RecordingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+        <!-- 24小时后台录音服务 -->
+        <service
+            android:name=".BackgroundRecordingService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone"
