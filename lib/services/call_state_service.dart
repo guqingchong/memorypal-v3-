@@ -189,7 +189,7 @@ class CallStateService {
       _autoImportSystemRecordings = autoImportSystemRecordings;
     }
 
-    await _databaseService.saveSettings({
+    await _databaseService.updateSettings({
       'enable_call_detection': _enableCallDetection,
       'auto_import_system_recordings': _autoImportSystemRecordings,
     });

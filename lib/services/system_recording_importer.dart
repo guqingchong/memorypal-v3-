@@ -181,8 +181,6 @@ class SystemRecordingImporter {
         tags: ['通话录音', brand, if (fileInfo['phoneNumber'] != null) fileInfo['phoneNumber']!],
         transcript: null,
         summary: null,
-        todosJson: null,
-        isFavorite: false,
         source: 'system_call', // 标记为系统通话录音
       );
 
