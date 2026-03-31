@@ -15,7 +15,10 @@ class SystemRecordingImporter {
   static const Map<String, List<String>> RECORDING_PATHS = {
     'huawei': [
       '/storage/emulated/0/Sounds/Recorder/',
+      '/storage/emulated/0/Sounds/Recorder/call/',
       '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/Pictures/Sounds/Recorder/',
+      '/sdcard/Sounds/Recorder/',
     ],
     'xiaomi': [
       '/storage/emulated/0/MIUI/sound_recorder/',

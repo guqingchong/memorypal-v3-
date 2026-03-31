@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.io.File
@@ -80,6 +81,23 @@ class BackgroundRecordingService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
+        checkBatteryOptimization()
+    }
+
+    /**
+     * 检查并请求忽略电池优化（华为/HarmonyOS需要）
+     */
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                Log.w(TAG, "未忽略电池优化，华为设备可能会杀后台")
+                // 发送广播通知Flutter层引导用户设置
+                val intent = Intent("com.memorypal.BATTERY_OPTIMIZATION")
+                intent.putExtra("needs_whitelist", true)
+                sendBroadcast(intent)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
