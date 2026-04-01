@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/recording.dart';
 import 'database_service.dart';
 import 'location_service.dart';
+import 'developer_service.dart';
 
 // 录音服务 - 与原生层通信
 class RecordingService {
@@ -16,6 +17,7 @@ class RecordingService {
 
   final _databaseService = DatabaseService();
   final _locationService = LocationService();
+  final _developerService = DeveloperService();
   Recording? _currentRecording;
   Timer? _recordingTimer;
   int _recordingSeconds = 0;
@@ -48,21 +50,26 @@ class RecordingService {
 
   // 处理原生层回调
   Future<dynamic> _handleMethodCall(MethodCall call) async {
+    _developerService.log('收到原生层回调: ${call.method}', tag: 'Recording');
     switch (call.method) {
       case 'onRecordingStarted':
         // 录音已开始
+        _developerService.log('原生层报告录音已开始', tag: 'Recording');
         break;
       case 'onRecordingStopped':
         // 录音已停止
+        _developerService.log('原生层报告录音已停止，准备完成录音', tag: 'Recording');
         await _finalizeRecording();
         break;
       case 'onRecordingError':
         final error = call.arguments as String;
+        _developerService.log('原生层报告录音错误: $error', level: LogLevel.error, tag: 'Recording');
         _recordingStateController.add(RecordingState.error(error));
         break;
       case 'onSegmentSaved':
         // 分段保存完成
         final filePath = call.arguments as String;
+        _developerService.log('后台录音分段已保存: $filePath', tag: 'Recording');
         await _processSegment(filePath);
         break;
     }
@@ -71,16 +78,20 @@ class RecordingService {
   // 开始录音
   Future<bool> startRecording({bool isVoiceNote = false}) async {
     if (_currentRecording != null) {
+      _developerService.log('录音启动失败：已有录音进行中', level: LogLevel.warning, tag: 'Recording');
       return false; // 已有录音进行中
     }
 
     try {
+      _developerService.log('开始录音，isVoiceNote=$isVoiceNote', tag: 'Recording');
+
       final directory = await _getRecordingDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final filePath = '${directory.path}/recording_$timestamp.m4a';
 
       // 尝试获取位置信息
       _currentLocation = await _locationService.getCurrentLocationInfo();
+      _developerService.log('位置信息: ${_currentLocation?.address ?? "未获取"}', tag: 'Recording');
 
       final result = await _channel.invokeMethod('startRecording', {
         'filePath': filePath,
@@ -107,10 +118,19 @@ class RecordingService {
         });
 
         _recordingStateController.add(RecordingState.recording(0));
+        _developerService.log('录音已启动: $filePath', tag: 'Recording');
         return true;
       }
+      _developerService.log('录音启动失败：原生返回false', level: LogLevel.error, tag: 'Recording');
       return false;
-    } catch (e) {
+    } catch (e, stack) {
+      _developerService.log(
+        '录音启动异常',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       _recordingStateController.add(RecordingState.error(e.toString()));
       return false;
     }
@@ -119,21 +139,32 @@ class RecordingService {
   // 停止录音
   Future<bool> stopRecording() async {
     if (_currentRecording == null) {
+      _developerService.log('停止录音失败：没有正在进行的录音', level: LogLevel.warning, tag: 'Recording');
       return false;
     }
 
     try {
+      _developerService.log('正在停止录音...', tag: 'Recording');
       _recordingTimer?.cancel();
       _recordingTimer = null;
 
       final result = await _channel.invokeMethod('stopRecording');
 
       if (result == true) {
+        _developerService.log('录音已停止，正在保存...', tag: 'Recording');
         await _finalizeRecording();
         return true;
       }
+      _developerService.log('停止录音失败：原生返回false', level: LogLevel.error, tag: 'Recording');
       return false;
-    } catch (e) {
+    } catch (e, stack) {
+      _developerService.log(
+        '停止录音异常',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       _recordingStateController.add(RecordingState.error(e.toString()));
       return false;
     }
@@ -143,8 +174,11 @@ class RecordingService {
   Future<void> _finalizeRecording() async {
     if (_currentRecording == null) return;
 
+    _developerService.log('完成录音并保存，时长: ${_recordingSeconds}秒', tag: 'Recording');
+
     // 生成智能标题
     final smartTitle = await _generateSmartTitle(_currentRecording!, _recordingSeconds);
+    _developerService.log('生成智能标题: $smartTitle', tag: 'Recording');
 
     final recording = _currentRecording!.copyWith(
       endTime: DateTime.now(),
@@ -154,8 +188,16 @@ class RecordingService {
 
     try {
       final id = await _databaseService.insertRecording(recording);
+      _developerService.log('录音已保存到数据库，ID: $id', tag: 'Recording');
       _recordingStateController.add(RecordingState.completed(id));
-    } catch (e) {
+    } catch (e, stack) {
+      _developerService.log(
+        '保存录音到数据库失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       _recordingStateController.add(RecordingState.error(e.toString()));
     } finally {
       _currentRecording = null;
@@ -246,26 +288,40 @@ class RecordingService {
 
   // 处理分段录音（24小时录音模式）
   Future<void> _processSegment(String filePath) async {
-    // 获取当前位置信息
-    final location = await _locationService.getCurrentLocationInfo();
+    _developerService.log('处理后台录音分段: $filePath', tag: 'Recording');
 
-    // 生成智能标题
-    final startTime = DateTime.now().subtract(const Duration(minutes: 5));
-    final title = await _generateSmartTitleForSegment(startTime, location);
+    try {
+      // 获取当前位置信息
+      final location = await _locationService.getCurrentLocationInfo();
+      _developerService.log('分段录音位置: ${location?.address ?? "未获取"}', tag: 'Recording');
 
-    // 将分段录音保存到数据库
-    final recording = Recording(
-      filePath: filePath,
-      startTime: startTime,
-      endTime: DateTime.now(),
-      durationSeconds: 300, // 5分钟分段
-      title: title,
-      latitude: location?.latitude,
-      longitude: location?.longitude,
-      locationName: location?.address,
-    );
+      // 生成智能标题
+      final startTime = DateTime.now().subtract(const Duration(minutes: 5));
+      final title = await _generateSmartTitleForSegment(startTime, location);
 
-    await _databaseService.insertRecording(recording);
+      // 将分段录音保存到数据库
+      final recording = Recording(
+        filePath: filePath,
+        startTime: startTime,
+        endTime: DateTime.now(),
+        durationSeconds: 300, // 5分钟分段
+        title: title,
+        latitude: location?.latitude,
+        longitude: location?.longitude,
+        locationName: location?.address,
+      );
+
+      final id = await _databaseService.insertRecording(recording);
+      _developerService.log('后台录音分段已保存到数据库，ID: $id', tag: 'Recording');
+    } catch (e, stack) {
+      _developerService.log(
+        '处理后台录音分段失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
+    }
   }
 
   // 为后台录音分段生成标题
@@ -305,35 +361,65 @@ class RecordingService {
 
   // 删除录音
   Future<void> deleteRecording(int id) async {
-    final recording = await _databaseService.getRecording(id);
-    if (recording != null) {
-      // 删除文件
-      final file = File(recording.filePath);
-      if (await file.exists()) {
-        await file.delete();
+    try {
+      _developerService.log('正在删除录音 ID: $id', tag: 'Recording');
+      final recording = await _databaseService.getRecording(id);
+      if (recording != null) {
+        // 删除文件
+        final file = File(recording.filePath);
+        if (await file.exists()) {
+          await file.delete();
+          _developerService.log('已删除录音文件: ${recording.filePath}', tag: 'Recording');
+        } else {
+          _developerService.log('录音文件不存在: ${recording.filePath}', level: LogLevel.warning, tag: 'Recording');
+        }
+        // 删除数据库记录
+        await _databaseService.deleteRecording(id);
+        _developerService.log('已删除录音记录 ID: $id', tag: 'Recording');
+      } else {
+        _developerService.log('录音记录不存在 ID: $id', level: LogLevel.warning, tag: 'Recording');
       }
-      // 删除数据库记录
-      await _databaseService.deleteRecording(id);
+    } catch (e, stack) {
+      _developerService.log(
+        '删除录音失败 ID: $id',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
     }
   }
 
   // 开始24小时环境录音（后台服务）
   Future<bool> startBackgroundRecording() async {
     try {
+      _developerService.log('正在启动24小时后台录音...', tag: 'Recording');
       final directory = await _getRecordingDirectory();
+      _developerService.log('录音目录: ${directory.path}', tag: 'Recording');
+
       final result = await _channel.invokeMethod('startBackgroundRecording', {
         'directory': directory.path,
         'segmentDuration': 300, // 5分钟分段
       });
+
       if (result == true) {
         _isBackgroundRecording = true;
         _backgroundRecordingController.add(true);
+        _developerService.log('后台录音启动成功', level: LogLevel.info, tag: 'Recording');
         // 定期检查状态
         _startBackgroundStatusCheck();
+      } else {
+        _developerService.log('后台录音启动失败：原生返回false', level: LogLevel.error, tag: 'Recording');
       }
       return result == true;
-    } catch (e) {
-      print('启动后台录音失败: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '启动后台录音异常',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
@@ -341,14 +427,25 @@ class RecordingService {
   // 停止24小时环境录音
   Future<bool> stopBackgroundRecording() async {
     try {
+      _developerService.log('正在停止后台录音...', tag: 'Recording');
       final result = await _channel.invokeMethod('stopBackgroundRecording');
       if (result == true) {
         _isBackgroundRecording = false;
         _backgroundRecordingController.add(false);
+        _backgroundStatusTimer?.cancel();
+        _developerService.log('后台录音已停止', tag: 'Recording');
+      } else {
+        _developerService.log('停止后台录音失败：原生返回false', level: LogLevel.error, tag: 'Recording');
       }
       return result == true;
-    } catch (e) {
-      print('停止后台录音失败: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '停止后台录音异常',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
@@ -358,18 +455,27 @@ class RecordingService {
   // 定期检查后台录音状态
   void _startBackgroundStatusCheck() {
     _backgroundStatusTimer?.cancel();
+    _developerService.log('开始定期检查后台录音状态', tag: 'Recording');
     _backgroundStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       try {
         final isRunning = await _channel.invokeMethod('isBackgroundRecordingRunning');
         if (isRunning != _isBackgroundRecording) {
+          _developerService.log('后台录音状态变化: $_isBackgroundRecording -> $isRunning', tag: 'Recording');
           _isBackgroundRecording = isRunning == true;
           _backgroundRecordingController.add(_isBackgroundRecording);
         }
         if (!isRunning) {
           _backgroundStatusTimer?.cancel();
+          _developerService.log('后台录音已停止，取消状态检查', tag: 'Recording');
         }
-      } catch (e) {
-        print('检查后台录音状态失败: $e');
+      } catch (e, stack) {
+        _developerService.log(
+          '检查后台录音状态失败',
+          level: LogLevel.error,
+          tag: 'Recording',
+          error: e,
+          stackTrace: stack,
+        );
       }
     });
   }
@@ -379,15 +485,23 @@ class RecordingService {
     try {
       final result = await _channel.invokeMethod('isBackgroundRecordingRunning');
       _isBackgroundRecording = result == true;
+      _developerService.log('查询后台录音状态: $_isBackgroundRecording', tag: 'Recording');
       return _isBackgroundRecording;
-    } catch (e) {
-      print('检查后台录音状态失败: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '查询后台录音状态失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
 
   // 释放资源
   void dispose() {
+    _developerService.log('释放录音服务资源', tag: 'Recording');
     _recordingTimer?.cancel();
     _backgroundStatusTimer?.cancel();
     _recordingStateController.close();
@@ -397,13 +511,25 @@ class RecordingService {
   // 用于语音转写的临时录音（不保存到数据库）
   Future<bool> startRecordingForTranscription(String filePath) async {
     try {
+      _developerService.log('启动转写录音: $filePath', tag: 'Recording');
       final result = await _channel.invokeMethod('startRecording', {
         'filePath': filePath,
         'isVoiceNote': false,
       });
+      if (result == true) {
+        _developerService.log('转写录音启动成功', tag: 'Recording');
+      } else {
+        _developerService.log('转写录音启动失败：原生返回false', level: LogLevel.error, tag: 'Recording');
+      }
       return result == true;
-    } catch (e) {
-      print('启动转写录音失败: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '启动转写录音失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
@@ -411,10 +537,22 @@ class RecordingService {
   // 停止转写录音
   Future<bool> stopRecordingForTranscription() async {
     try {
+      _developerService.log('停止转写录音...', tag: 'Recording');
       final result = await _channel.invokeMethod('stopRecording');
+      if (result == true) {
+        _developerService.log('转写录音已停止', tag: 'Recording');
+      } else {
+        _developerService.log('停止转写录音失败：原生返回false', level: LogLevel.error, tag: 'Recording');
+      }
       return result == true;
-    } catch (e) {
-      print('停止转写录音失败: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '停止转写录音异常',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }

@@ -7,6 +7,8 @@ import '../services/recording_service.dart';
 import '../services/call_state_service.dart';
 import '../services/system_recording_importer.dart';
 import '../services/settings_service.dart';
+import '../services/developer_service.dart';
+import 'developer_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -22,6 +24,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _recordingService = RecordingService();
   final _callStateService = CallStateService();
   final _settingsService = SettingsService();
+  final _developerService = DeveloperService();
+
+  // 开发者模式
+  bool _isDeveloperMode = false;
 
   // 设置状态
   bool _notificationsEnabled = true;
@@ -50,6 +56,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadSettings();
+    _initDeveloperMode();
+  }
+
+  Future<void> _initDeveloperMode() async {
+    await _developerService.initialize();
+    setState(() {
+      _isDeveloperMode = _developerService.isDeveloperMode;
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -538,9 +552,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // 关于
           _buildSection('关于', [
-            const ListTile(
-              title: Text('版本'),
-              trailing: Text('1.0.0'),
+            // 版本号（连续点击7次开启开发者模式）
+            ListTile(
+              title: const Text('版本'),
+              trailing: GestureDetector(
+                onTap: () async {
+                  final triggered = await _developerService.checkDeveloperModeTrigger();
+                  if (triggered && mounted) {
+                    setState(() => _isDeveloperMode = true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('开发者模式已开启'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _isDeveloperMode ? Colors.orange.withOpacity(0.2) : null,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '1.0.0${_isDeveloperMode ? " (Dev)" : ""}',
+                    style: TextStyle(
+                      color: _isDeveloperMode ? Colors.orange : null,
+                      fontWeight: _isDeveloperMode ? FontWeight.bold : null,
+                    ),
+                  ),
+                ),
+              ),
             ),
             ListTile(
               title: const Text('隐私政策'),
@@ -552,6 +594,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showTermsOfService(),
             ),
+            // 开发者选项（仅在开发者模式下显示）
+            if (_isDeveloperMode)
+              ListTile(
+                title: const Text(
+                  '开发者选项',
+                  style: TextStyle(color: Colors.orange),
+                ),
+                subtitle: const Text('系统诊断、日志查看、问题报告'),
+                leading: const Icon(Icons.developer_mode, color: Colors.orange),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DeveloperScreen(),
+                    ),
+                  );
+                },
+              ),
           ]),
 
           const SizedBox(height: 32),

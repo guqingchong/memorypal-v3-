@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import '../models/recording.dart';
 import '../models/note.dart';
 import '../models/user_profile.dart';
+import 'developer_service.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -11,6 +12,8 @@ class DatabaseService {
   factory DatabaseService() => _instance;
 
   DatabaseService._internal();
+
+  final _developerService = DeveloperService();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -21,16 +24,32 @@ class DatabaseService {
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'memorypal.db');
+    _developerService.log('初始化数据库: $path', tag: 'Database');
 
-    return await openDatabase(
-      path,
-      version: 5,  // 升级到版本5，添加imported_files表
-      onCreate: _createTables,
-      onUpgrade: _upgradeTables,
-    );
+    try {
+      final db = await openDatabase(
+        path,
+        version: 5,  // 升级到版本5，添加imported_files表
+        onCreate: _createTables,
+        onUpgrade: _upgradeTables,
+      );
+      _developerService.log('数据库初始化成功', tag: 'Database');
+      return db;
+    } catch (e, stack) {
+      _developerService.log(
+        '数据库初始化失败',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      rethrow;
+    }
   }
 
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+    _developerService.log('数据库升级: $oldVersion -> $newVersion', tag: 'Database');
+
     if (oldVersion < 2) {
       // 添加is_voice_note字段到录音表
       try {
@@ -282,19 +301,44 @@ class DatabaseService {
 
   // 录音相关操作
   Future<int> insertRecording(Recording recording) async {
-    final db = await database;
-    return await db.insert('recordings', recording.toMap());
+    try {
+      final db = await database;
+      final id = await db.insert('recordings', recording.toMap());
+      _developerService.log('录音已插入数据库，ID: $id, 路径: ${recording.filePath}', tag: 'Database');
+      return id;
+    } catch (e, stack) {
+      _developerService.log(
+        '插入录音失败',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      rethrow;
+    }
   }
 
   Future<List<Recording>> getRecordings({int limit = 100, int offset = 0}) async {
-    final db = await database;
-    final maps = await db.query(
-      'recordings',
-      orderBy: 'start_time DESC',
-      limit: limit,
-      offset: offset,
-    );
-    return maps.map((m) => Recording.fromMap(m)).toList();
+    try {
+      final db = await database;
+      final maps = await db.query(
+        'recordings',
+        orderBy: 'start_time DESC',
+        limit: limit,
+        offset: offset,
+      );
+      _developerService.log('查询录音列表，返回 ${maps.length} 条记录', tag: 'Database');
+      return maps.map((m) => Recording.fromMap(m)).toList();
+    } catch (e, stack) {
+      _developerService.log(
+        '查询录音列表失败',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      return [];
+    }
   }
 
   Future<Recording?> getRecording(int id) async {
@@ -319,12 +363,25 @@ class DatabaseService {
   }
 
   Future<int> deleteRecording(int id) async {
-    final db = await database;
-    return await db.delete(
-      'recordings',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    try {
+      final db = await database;
+      final result = await db.delete(
+        'recordings',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      _developerService.log('删除录音记录，ID: $id, 影响行数: $result', tag: 'Database');
+      return result;
+    } catch (e, stack) {
+      _developerService.log(
+        '删除录音记录失败，ID: $id',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      rethrow;
+    }
   }
 
   // 删除旧录音（循环覆盖策略）
