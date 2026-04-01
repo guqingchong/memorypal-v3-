@@ -402,14 +402,48 @@ class DatabaseService {
   }
 
   Future<List<Note>> getNotes({int limit = 100, int offset = 0}) async {
-    final db = await database;
-    final maps = await db.query(
-      'notes',
-      orderBy: 'created_at DESC',
-      limit: limit,
-      offset: offset,
-    );
-    return maps.map((m) => Note.fromMap(m)).toList();
+    try {
+      final db = await database;
+      _developerService.log('查询笔记列表，limit=$limit, offset=$offset', tag: 'Database');
+
+      final maps = await db.query(
+        'notes',
+        orderBy: 'created_at DESC',
+        limit: limit,
+        offset: offset,
+      );
+
+      _developerService.log('查询到 ${maps.length} 条原始笔记数据', tag: 'Database');
+
+      final notes = <Note>[];
+      for (var i = 0; i < maps.length; i++) {
+        try {
+          final note = Note.fromMap(maps[i]);
+          notes.add(note);
+        } catch (e, stack) {
+          _developerService.log(
+            '解析笔记第 $i 条失败: $e',
+            level: LogLevel.error,
+            tag: 'Database',
+            error: e,
+            stackTrace: stack,
+          );
+          // 继续解析下一条
+        }
+      }
+
+      _developerService.log('成功解析 ${notes.length}/${maps.length} 条笔记', tag: 'Database');
+      return notes;
+    } catch (e, stack) {
+      _developerService.log(
+        '查询笔记列表失败',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      return [];
+    }
   }
 
   Future<int> updateNote(Note note) async {

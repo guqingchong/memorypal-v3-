@@ -25,6 +25,8 @@ class MainActivity : FlutterActivity() {
     private val CALL_STATE_CHANNEL = "com.memorypal/call_state"
 
     private var callStateReceiver: BroadcastReceiver? = null
+    private var segmentSavedReceiver: BroadcastReceiver? = null
+    private var recordingMethodChannel: MethodChannel? = null
     private var callStateMethodChannel: MethodChannel? = null
 
     companion object {
@@ -35,8 +37,8 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         // 录音服务通道
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RECORDING_CHANNEL)
-            .setMethodCallHandler { call, result ->
+        recordingMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RECORDING_CHANNEL)
+        recordingMethodChannel?.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "startRecording" -> {
                         val filePath = call.argument<String>("filePath")
@@ -123,6 +125,34 @@ class MainActivity : FlutterActivity() {
         callStateMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_STATE_CHANNEL)
         setupCallStateReceiver()
         startCallStateService()
+
+        // 后台录音保存监听
+        setupSegmentSavedReceiver()
+    }
+
+    /**
+     * 设置后台录音保存广播接收器
+     */
+    private fun setupSegmentSavedReceiver() {
+        segmentSavedReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val filePath = intent.getStringExtra("filePath")
+                Log.d("MainActivity", "Segment saved: $filePath")
+
+                // 转发到 Flutter
+                filePath?.let {
+                    recordingMethodChannel?.invokeMethod("onSegmentSaved", it)
+                }
+            }
+        }
+
+        // 注册广播接收器
+        val filter = IntentFilter("com.memorypal.SEGMENT_SAVED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(segmentSavedReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(segmentSavedReceiver, filter)
+        }
     }
 
     /**
@@ -215,6 +245,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         super.onDestroy()
         callStateReceiver?.let { unregisterReceiver(it) }
+        segmentSavedReceiver?.let { unregisterReceiver(it) }
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {

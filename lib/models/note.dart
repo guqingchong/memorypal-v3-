@@ -51,25 +51,58 @@ class Note {
   }
 
   factory Note.fromMap(Map<String, dynamic> map) {
+    // 安全获取 int 值
+    int? safeInt(dynamic value) {
+      if (value == null) return null;
+      if (value is int) return value;
+      if (value is String) return int.tryParse(value);
+      return null;
+    }
+
+    // 安全获取 double 值
+    double? safeDouble(dynamic value) {
+      if (value == null) return null;
+      if (value is double) return value;
+      if (value is int) return value.toDouble();
+      if (value is String) return double.tryParse(value);
+      return null;
+    }
+
+    // 安全获取 String 值
+    String safeString(dynamic value, {String defaultValue = ''}) {
+      if (value == null) return defaultValue;
+      if (value is String) return value;
+      return value.toString();
+    }
+
+    // 安全获取 DateTime
+    DateTime safeDateTime(dynamic value) {
+      final millis = safeInt(value);
+      if (millis != null) {
+        return DateTime.fromMillisecondsSinceEpoch(millis);
+      }
+      return DateTime.now();
+    }
+
     return Note(
-      id: map['id'] as int?,
+      id: safeInt(map['id']),
       type: NoteType.values.firstWhere(
         (e) => e.name == map['type'],
         orElse: () => NoteType.text,
       ),
-      title: map['title'] as String,
-      content: map['content'] as String,
+      title: safeString(map['title'], defaultValue: '无标题'),
+      content: safeString(map['content'], defaultValue: ''),
       audioPath: map['audio_path'] as String?,
       transcript: map['transcript'] as String?,
       tags: map['tags'] != null && (map['tags'] as String).isNotEmpty
           ? (map['tags'] as String).split(',')
           : [],
-      linkedRecordingId: map['linked_recording_id'] as int?,
-      latitude: map['latitude'] as double?,
-      longitude: map['longitude'] as double?,
+      linkedRecordingId: safeInt(map['linked_recording_id']),
+      latitude: safeDouble(map['latitude']),
+      longitude: safeDouble(map['longitude']),
       locationName: map['location_name'] as String?,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
-      updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
+      createdAt: safeDateTime(map['created_at']),
+      updatedAt: safeDateTime(map['updated_at']),
     );
   }
 
