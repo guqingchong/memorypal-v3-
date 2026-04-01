@@ -22,11 +22,23 @@ class _NoteListScreenState extends State<NoteListScreen> {
 
   Future<void> _loadNotes() async {
     setState(() => _isLoading = true);
-    final notes = await _databaseService.getNotes(limit: 100);
-    setState(() {
-      _notes = notes;
-      _isLoading = false;
-    });
+    try {
+      final notes = await _databaseService.getNotes(limit: 100);
+      if (mounted) {
+        setState(() {
+          _notes = notes;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('加载笔记失败: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('加载笔记失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _deleteNote(int id) async {

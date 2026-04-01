@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/database_service.dart';
 import '../services/backup_service.dart';
 import '../services/kimi_service.dart';
 import '../services/recording_service.dart';
 import '../services/call_state_service.dart';
 import '../services/system_recording_importer.dart';
+import '../services/settings_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _kimiService = KimiService();
   final _recordingService = RecordingService();
   final _callStateService = CallStateService();
+  final _settingsService = SettingsService();
 
   // 设置状态
   bool _notificationsEnabled = true;
@@ -52,9 +55,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     try {
       final settings = await _databaseService.getSettings();
+
+      // 从SharedPreferences加载设置
+      final autoRecording = await _settingsService.getAutoRecordingEnabled();
+      final kimiApiKey = await _settingsService.getKimiApiKey();
+      final recordingQuality = await _settingsService.getRecordingQuality();
+
+      // 如果保存过API Key，初始化Kimi服务
+      if (kimiApiKey != null && kimiApiKey.isNotEmpty) {
+        _kimiService.setApiKey(kimiApiKey);
+      }
+
       setState(() {
         _notificationsEnabled = true; // 通知权限单独管理
-        _autoRecording = false; // 需要实现
+        _autoRecording = autoRecording;
         _cloudAnalysis = settings['enable_cloud_analysis'] == 1;
         _nightAnalysis = settings['night_analysis_enabled'] == 1;
         _locationBased = settings['allow_location_based'] == 1;
@@ -62,12 +76,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _recordingRetentionDays = settings['recording_retention_days'] ?? 30;
         _dailySummaryTime = settings['daily_summary_time'] ?? '08:00';
         _monthlyBudget = settings['monthly_api_budget'] ?? 0.0;
+        _recordingQuality = recordingQuality;
         // 加载通话录音设置
         _enableCallDetection = settings['enable_call_detection'] ?? true;
         _autoImportSystemRecordings = settings['auto_import_system_recordings'] ?? true;
+        // 加载Kimi API Key
+        _kimiApiKey = kimiApiKey;
         _isLoading = false;
       });
     } catch (e) {
+      debugPrint('加载设置失败: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -266,6 +284,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (result != null) {
       setState(() => _kimiApiKey = result);
       _kimiService.setApiKey(result);
+      // 持久化保存到SharedPreferences
+      await _settingsService.setKimiApiKey(result);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('API Key已保存')),
@@ -321,12 +341,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('自动环境录音'),
               subtitle: const Text('启动后自动开始24小时环境录音'),
               value: _autoRecording,
-              onChanged: (value) {
+              onChanged: (value) async {
                 setState(() => _autoRecording = value);
+                // 保存到SharedPreferences
+                await _settingsService.setAutoRecordingEnabled(value);
                 if (value) {
-                  _recordingService.startBackgroundRecording();
+                  final result = await _recordingService.startBackgroundRecording();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(result ? '后台录音已启动' : '启动后台录音失败'),
+                        backgroundColor: result ? Colors.green : Colors.red,
+                      ),
+                    );
+                  }
                 } else {
-                  _recordingService.stopBackgroundRecording();
+                  await _recordingService.stopBackgroundRecording();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('后台录音已停止')),
+                    );
+                  }
                 }
               },
             ),
@@ -338,9 +373,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 items: ['低', '标准', '高'].map((e) =>
                   DropdownMenuItem(value: e, child: Text(e))
                 ).toList(),
-                onChanged: (value) {
+                onChanged: (value) async {
                   if (value != null) {
                     setState(() => _recordingQuality = value);
+                    await _settingsService.setRecordingQuality(value);
                   }
                 },
               ),
@@ -712,7 +748,7 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
       builder: (context) => AlertDialog(
         title: const Text('导入系统通话录音'),
         content: const Text(
-            '将扫描华为、小米等系统的通话录音目录，并导入到 MemoryPal 进行分析。'),
+            '将扫描华为、小米等系统的通话录音目录，并导入到 MemoryPal 进行分析。\n\n注意：需要授予存储权限才能访问系统录音文件。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -755,7 +791,12 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('未找到录音'),
-              content: const Text('未在系统目录中找到通话录音文件。\n\n支持的机型：\n• 华为\n• 小米\n• OPPO\n• vivo\n• 三星'),
+              content: const Text(
+                  '未在系统目录中找到通话录音文件。\n\n可能原因：\n'
+                  '1. 手机没有通话录音功能或未开启\n'
+                  '2. 录音文件存储在其他路径\n'
+                  '3. 存储权限未授予\n\n'
+                  '支持的机型：华为、小米、OPPO、vivo、三星'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -785,12 +826,37 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
           );
         }
       }
-    } catch (e) {
+    } on Exception catch (e) {
       if (mounted) {
         Navigator.pop(context); // 关闭进度对话框
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导入失败: $e'), backgroundColor: Colors.red),
-        );
+
+        if (e.toString().contains('权限')) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('需要权限'),
+              content: const Text(
+                  '需要存储权限才能访问系统录音文件。\n\n请在系统设置中授予存储权限。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    openAppSettings();
+                  },
+                  child: const Text('去设置'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('导入失败: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }

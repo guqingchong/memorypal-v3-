@@ -7,15 +7,14 @@ import '../models/recording.dart';
 import 'kimi_service.dart';
 import 'keyword_extraction_service.dart';
 import 'whisper_local_service.dart';
+import 'transcription_status_service.dart';
 
 /// 语音转写服务
 ///
-/// 转写架构（计划）：
-/// 1. 本地Whisper转写（待集成）- 离线语音转文字
+/// 转写架构：
+/// 1. 本地Whisper转写 - 离线语音转文字
 /// 2. Kimi云端分析 - 转写后的文本深度分析（待办提取等）
-/// 3. 本地备用（智能关键词提取）- 当前使用的降级方案
-///
-/// 注意：正在集成 whisper.cpp 本地语音转写模型
+/// 3. 本地备用（智能关键词提取）- 降级方案
 class TranscriptionService {
   static final TranscriptionService _instance = TranscriptionService._internal();
   factory TranscriptionService() => _instance;
@@ -25,6 +24,7 @@ class TranscriptionService {
   final _dio = Dio();
   final _keywordService = KeywordExtractionService();
   final _whisperService = WhisperLocalService();
+  final _statusService = TranscriptionStatusService();
 
   /// 转写音频文件
   ///
@@ -64,12 +64,29 @@ class TranscriptionService {
   /// 调用本地 whisper.cpp 进行语音转文字
   /// 需要提前下载模型文件 ggml-small.bin
   Future<TranscriptionResult?> _transcribeWithWhisper(String audioPath) async {
+    final recordingId = audioPath.hashCode.toString();
+    final fileName = audioPath.split('/').last;
+
     try {
+      // 通知状态：开始转写
+      _statusService.startTranscription(recordingId, fileName);
+      _statusService.updateStep(recordingId, TranscriptionStep.loadingModel,
+          message: '加载Whisper模型...');
+
+      // 模拟加载模型时间（实际集成时可移除）
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      _statusService.updateStep(recordingId, TranscriptionStep.transcribing,
+          message: '正在转写音频...');
+
       // 调用Whisper本地服务
       final text = await _whisperService.transcribe(audioPath, language: 'zh');
 
       if (text != null && text.isNotEmpty) {
         debugPrint('Whisper转写成功: ${text.substring(0, text.length > 50 ? 50 : text.length)}...');
+
+        _statusService.completeTranscription(recordingId, text,
+            tags: ['本地转写', 'Whisper']);
 
         return TranscriptionResult(
           text: text,
@@ -80,9 +97,12 @@ class TranscriptionService {
           audioPath: audioPath,
           tags: ['本地转写'],
         );
+      } else {
+        _statusService.failTranscription(recordingId, '转写结果为空');
       }
     } catch (e) {
       debugPrint('Whisper转写失败: $e');
+      _statusService.failTranscription(recordingId, e.toString());
     }
 
     // 转写失败，降级到关键词提取
@@ -350,6 +370,9 @@ class TranscriptionService {
     // 简化实现：返回空列表
     return [];
   }
+
+  /// 获取转写状态服务（用于UI监听）
+  TranscriptionStatusService get statusService => _statusService;
 }
 
 /// 转写结果

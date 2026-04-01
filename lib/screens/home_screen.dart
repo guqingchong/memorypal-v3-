@@ -123,9 +123,25 @@ class _HomeContentState extends State<_HomeContent> {
     }
 
     if (_isRecording) {
-      await _recordingService.stopRecording();
+      // 停止录音
+      final result = await _recordingService.stopRecording();
+      if (result && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('录音已保存')),
+        );
+      }
     } else {
-      await _recordingService.startRecording();
+      // 开始录音
+      final result = await _recordingService.startRecording(isVoiceNote: false);
+      if (result && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('开始录音...'), duration: Duration(seconds: 1)),
+        );
+      } else if (!result && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('启动录音失败'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -230,21 +246,24 @@ class _HomeContentState extends State<_HomeContent> {
       return;
     }
 
-    setState(() => _isRecording = true);
-
     // 启动录音（标记为语音笔记）
     final result = await _recordingService.startRecording(isVoiceNote: true);
     if (!result) {
-      setState(() => _isRecording = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('启动录音失败')),
         );
       }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('语音笔记录音中...'), duration: Duration(seconds: 1)),
+        );
+      }
     }
   }
 
-  // 显示录音模式选择
+  // 显示录音模式选择（长按菜单）
   void _showRecordingModeSelector() {
     showModalBottomSheet(
       context: context,
@@ -258,15 +277,6 @@ class _HomeContentState extends State<_HomeContent> {
                 '选择录音模式',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.mic, color: Colors.orange),
-              title: const Text('语音笔记'),
-              subtitle: const Text('专门标记为笔记，便于后续整理'),
-              onTap: () {
-                Navigator.pop(context);
-                _startVoiceNoteRecording();
-              },
             ),
             ListTile(
               leading: const Icon(Icons.record_voice_over, color: Colors.blue),
@@ -357,21 +367,22 @@ class _HomeContentState extends State<_HomeContent> {
     return GestureDetector(
       onTap: _toggleRecording,
       onLongPress: _showRecordingModeSelector,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
         height: 140,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: _isRecording
-                ? [Colors.red.shade400, Colors.red.shade600]
-                : [Colors.blue.shade400, Colors.blue.shade600],
+                ? [Colors.red.shade400, Colors.red.shade700]
+                : [Colors.blue.shade400, Colors.blue.shade700],
           ),
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: (_isRecording ? Colors.red : Colors.blue).withOpacity(0.3),
-              blurRadius: 20,
+              color: (_isRecording ? Colors.red : Colors.blue).withOpacity(0.4),
+              blurRadius: _isRecording ? 30 : 20,
               offset: const Offset(0, 8),
             ),
           ],
@@ -379,21 +390,51 @@ class _HomeContentState extends State<_HomeContent> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
+            // 脉冲动画（录音中）
+            if (_isRecording)
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.3),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.stop_rounded,
+                        size: 32,
+                        color: Colors.red.shade700,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.mic_rounded,
+                  size: 40,
+                  color: Colors.white,
+                ),
               ),
-              child: Icon(
-                _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
-                size: 40,
-                color: Colors.white,
-              ),
-            ),
             const SizedBox(height: 12),
             Text(
-              _isRecording ? '录音中 ${_formatDuration(_recordingSeconds)}' : '点击开始录音',
+              _isRecording
+                  ? '录音中 ${_formatDuration(_recordingSeconds)}'
+                  : '点击开始录音',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -404,6 +445,11 @@ class _HomeContentState extends State<_HomeContent> {
               Text(
                 '长按选择模式',
                 style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
+              )
+            else
+              Text(
+                '点击停止录音',
+                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
               ),
           ],
         ),
@@ -412,12 +458,9 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildQuickActions() {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    return Row(
       children: [
-        SizedBox(
-          width: (MediaQuery.of(context).size.width - 56) / 4,
+        Expanded(
           child: _ActionCard(
             icon: Icons.edit,
             title: '文字笔记',
@@ -430,17 +473,17 @@ class _HomeContentState extends State<_HomeContent> {
             },
           ),
         ),
-        SizedBox(
-          width: (MediaQuery.of(context).size.width - 56) / 4,
+        const SizedBox(width: 8),
+        Expanded(
           child: _ActionCard(
             icon: Icons.mic,
             title: '语音笔记',
             color: Colors.orange,
-            onTap: _toggleRecording,
+            onTap: _startVoiceNoteRecording,
           ),
         ),
-        SizedBox(
-          width: (MediaQuery.of(context).size.width - 56) / 4,
+        const SizedBox(width: 8),
+        Expanded(
           child: _ActionCard(
             icon: Icons.upload_file,
             title: '导入文件',
@@ -448,8 +491,8 @@ class _HomeContentState extends State<_HomeContent> {
             onTap: _importFile,
           ),
         ),
-        SizedBox(
-          width: (MediaQuery.of(context).size.width - 56) / 4,
+        const SizedBox(width: 8),
+        Expanded(
           child: _ActionCard(
             icon: Icons.chat,
             title: '微信导入',

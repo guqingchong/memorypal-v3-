@@ -7,7 +7,9 @@ import '../services/kimi_service.dart';
 import '../services/whisper_service.dart';
 import '../services/recording_service.dart';
 import '../services/vector_search_service.dart';
+import '../services/settings_service.dart';
 import '../utils/permission_manager.dart';
+import '../models/user_profile.dart';
 
 /// AI对话界面 - 与助理对话、自然语言检索、智能问答
 class ChatScreen extends StatefulWidget {
@@ -22,6 +24,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _kimiService = KimiService();
   final _whisperService = WhisperService();
   final _vectorSearchService = VectorSearchService();
+  final _settingsService = SettingsService();
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
 
@@ -35,6 +38,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final _recordingService = RecordingService();
 
+  // 用户画像
+  UserProfile? _userProfile;
+  bool _isLoadingProfile = true;
+
   // 快捷询问选项
   final List<String> _quickQuestions = [
     '我最近有什么待办？',
@@ -46,13 +53,42 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserProfile();
     _addWelcomeMessage();
   }
 
+  // 加载用户画像
+  Future<void> _loadUserProfile() async {
+    try {
+      final profile = await _databaseService.getUserProfile();
+      if (mounted) {
+        setState(() {
+          _userProfile = profile;
+          _isLoadingProfile = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('加载用户画像失败: $e');
+      if (mounted) {
+        setState(() => _isLoadingProfile = false);
+      }
+    }
+  }
+
   void _addWelcomeMessage() {
+    String welcomeText = '你好！我是你的MemoryPal智能助理。\n\n我可以帮你：\n• 查找过去的录音和笔记\n• 回答关于你记忆的问题\n• 提取待办事项\n• 分析你的习惯和偏好\n\n有什么可以帮你的吗？';
+
+    // 如果有用户画像，个性化欢迎语
+    if (_userProfile != null) {
+      final name = _userProfile!.name;
+      if (name != null && name.isNotEmpty) {
+        welcomeText = '你好$name！我是你的MemoryPal智能助理。\n\n我可以帮你：\n• 查找过去的录音和笔记\n• 回答关于你记忆的问题\n• 提取待办事项\n• 分析你的习惯和偏好\n\n有什么可以帮你的吗？';
+      }
+    }
+
     _messages.add(ChatMessage(
       isUser: false,
-      content: '你好！我是你的MemoryPal智能助理。\n\n我可以帮你：\n• 查找过去的录音和笔记\n• 回答关于你记忆的问题\n• 提取待办事项\n• 分析你的习惯和偏好\n\n有什么可以帮你的吗？',
+      content: welcomeText,
       timestamp: DateTime.now(),
     ));
   }
@@ -316,6 +352,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<String> _askAI(String question) async {
+    // 构建用户画像上下文
+    final profileContext = _buildProfileContext();
+
     // 先尝试用Kimi API
     if (_kimiService.isAvailable) {
       // 获取相关上下文
@@ -323,6 +362,12 @@ class _ChatScreenState extends State<ChatScreen> {
       final notes = await _databaseService.getNotes(limit: 20);
 
       final context = <String>[];
+
+      // 添加用户画像信息
+      if (profileContext.isNotEmpty) {
+        context.add('【用户画像】$profileContext');
+      }
+
       for (final r in recordings.take(10)) {
         if (r.transcript != null && r.transcript!.isNotEmpty) {
           context.add('[录音 ${r.startTime.month}/${r.startTime.day}] ${r.transcript}');
@@ -338,15 +383,37 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    // 离线模式：基于本地数据简单回答
-    return _offlineAnswer(question);
+    // 离线模式：基于本地数据和用户画像简单回答
+    return _offlineAnswer(question, profileContext: profileContext);
   }
 
-  String _offlineAnswer(String question) {
+  // 构建用户画像上下文描述
+  String _buildProfileContext() {
+    if (_userProfile == null) return '';
+
+    final parts = <String>[];
+    final p = _userProfile!;
+
+    if (p.name != null && p.name!.isNotEmpty) parts.add('姓名:${p.name}');
+    if (p.occupation != null && p.occupation!.isNotEmpty) parts.add('职业:${p.occupation}');
+    if (p.interests.isNotEmpty) parts.add('兴趣:${p.interests.take(3).join(',')}');
+    if (p.habits.isNotEmpty) parts.add('习惯:${p.habits.take(3).join(',')}');
+    if (p.shortTermGoals != null && p.shortTermGoals!.isNotEmpty) {
+      parts.add('近期目标:${p.shortTermGoals}');
+    }
+
+    return parts.join('；');
+  }
+
+  String _offlineAnswer(String question, {String profileContext = ''}) {
     final lower = question.toLowerCase();
 
+    // 使用用户名字个性化回复
+    final userName = _userProfile?.name;
+    final greeting = userName != null && userName.isNotEmpty ? '你好$userName！' : '你好！';
+
     if (lower.contains('你好') || lower.contains('是谁')) {
-      return '你好！我是MemoryPal，你的24小时智能助理。\n\n我可以帮你记录生活、整理思路、提醒待办。我的所有功能都可以离线使用，保护你的隐私。';
+      return '$greeting我是MemoryPal，你的24小时智能助理。\n\n我可以帮你记录生活、整理思路、提醒待办。我的所有功能都可以离线使用，保护你的隐私。';
     }
 
     if (lower.contains('隐私') || lower.contains('安全')) {
@@ -354,10 +421,52 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (lower.contains('功能') || lower.contains('能做什么') || lower.contains('帮助')) {
-      return '🤖 我可以帮你\n\n• 📱 24小时环境录音记录\n• 📝 语音/文字笔记\n• 🔍 自然语言搜索记忆\n• ⏰ 智能待办提醒\n• 💡 基于习惯的建议\n• 📊 每日记忆摘要\n\n试着问我："我最近有什么待办？" 或 "帮我找一下会议纪要"';
+      return '$greeting我是你的MemoryPal智能助理🤖\n\n我可以帮你：\n• 📱 24小时环境录音记录\n• 📝 语音/文字笔记\n• 🔍 自然语言搜索记忆\n• ⏰ 智能待办提醒\n• 💡 基于习惯的建议\n• 📊 每日记忆摘要\n\n${_buildPersonalizedHint()}';
     }
 
-    return '我理解你想了解 "$question"，但我的云端AI服务暂时不可用。\n\n你可以尝试：\n• 检查网络连接\n• 在设置中配置Kimi API密钥\n• 问我关于待办、最近记录等本地问题';
+    // 如果有用户画像，尝试基于画像回答
+    if (_userProfile != null) {
+      if (lower.contains('兴趣') || lower.contains('喜欢')) {
+        final interests = _userProfile!.interests;
+        if (interests.isNotEmpty) {
+          return '根据你的资料，你对${interests.take(3).join('、')}感兴趣。\n\n如果你想记录更多兴趣相关的内容，可以随时录音或记笔记，我会帮你整理。';
+        }
+      }
+
+      if (lower.contains('目标') || lower.contains('计划')) {
+        final goals = _userProfile!.shortTermGoals;
+        if (goals != null && goals.isNotEmpty) {
+          return '你当前的短期目标是：$goals\n\n需要我帮你制定计划或提醒相关待办吗？';
+        }
+      }
+
+      if (lower.contains('工作') || lower.contains('职业')) {
+        final occupation = _userProfile!.occupation;
+        if (occupation != null && occupation.isNotEmpty) {
+          return '你从事$occupation工作。\n\n我可以帮你记录工作中的想法、整理会议纪要、提取待办事项。';
+        }
+      }
+    }
+
+    return '$greeting我理解你想了解 "$question"。\n\n${_buildPersonalizedHint()}\n\n如果云端AI服务可用，我会给你更详细的回答。';
+  }
+
+  // 构建个性化提示
+  String _buildPersonalizedHint() {
+    final hints = <String>[];
+
+    if (_userProfile?.occupation != null) {
+      hints.add('💼 试试问我工作相关的问题');
+    }
+    if (_userProfile?.interests.isNotEmpty == true) {
+      hints.add('🎯 询问你的兴趣相关记录');
+    }
+    if (hints.isEmpty) {
+      hints.add('💡 试着问我："我最近有什么待办？"');
+      hints.add('💡 或："帮我找一下会议纪要"');
+    }
+
+    return hints.take(2).join('\n');
   }
 
   // 开始语音输入录音
