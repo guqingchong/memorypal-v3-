@@ -41,20 +41,27 @@ class MainActivity : FlutterActivity() {
                     "startRecording" -> {
                         val filePath = call.argument<String>("filePath")
                         if (filePath != null) {
-                            // 启动后台服务
+                            // 启动后台服务并开始录音
                             val intent = Intent(this, RecordingService::class.java).apply {
+                                action = "START_RECORDING"
                                 putExtra("filePath", filePath)
                                 putExtra("isVoiceNote", call.argument<Boolean>("isVoiceNote") ?: false)
                             }
-                            startService(intent)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
                             result.success(true)
                         } else {
                             result.error("INVALID_PATH", "文件路径为空", null)
                         }
                     }
                     "stopRecording" -> {
-                        val intent = Intent(this, RecordingService::class.java)
-                        stopService(intent)
+                        val intent = Intent(this, RecordingService::class.java).apply {
+                            action = "STOP_RECORDING"
+                        }
+                        startService(intent)
                         result.success(true)
                     }
                     "startBackgroundRecording" -> {

@@ -49,6 +49,19 @@ class RecordingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let {
+            when (it.action) {
+                "START_RECORDING" -> {
+                    val filePath = it.getStringExtra("filePath")
+                    if (filePath != null) {
+                        startRecording(filePath)
+                    }
+                }
+                "STOP_RECORDING" -> {
+                    stopRecording()
+                }
+            }
+        }
         return START_STICKY
     }
 

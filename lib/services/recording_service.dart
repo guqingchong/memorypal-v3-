@@ -25,9 +25,17 @@ class RecordingService {
   final _recordingStateController = StreamController<RecordingState>.broadcast();
   Stream<RecordingState> get recordingState => _recordingStateController.stream;
 
+  // 后台录音状态流
+  final _backgroundRecordingController = StreamController<bool>.broadcast();
+  Stream<bool> get backgroundRecordingState => _backgroundRecordingController.stream;
+
   // 当前录音
   Recording? get currentRecording => _currentRecording;
   bool get isRecording => _currentRecording != null;
+
+  // 是否正在后台录音
+  bool _isBackgroundRecording = false;
+  bool get isBackgroundRecording => _isBackgroundRecording;
 
   // 初始化
   Future<void> initialize() async {
@@ -317,6 +325,12 @@ class RecordingService {
         'directory': directory.path,
         'segmentDuration': 300, // 5分钟分段
       });
+      if (result == true) {
+        _isBackgroundRecording = true;
+        _backgroundRecordingController.add(true);
+        // 定期检查状态
+        _startBackgroundStatusCheck();
+      }
       return result == true;
     } catch (e) {
       print('启动后台录音失败: $e');
@@ -328,6 +342,10 @@ class RecordingService {
   Future<bool> stopBackgroundRecording() async {
     try {
       final result = await _channel.invokeMethod('stopBackgroundRecording');
+      if (result == true) {
+        _isBackgroundRecording = false;
+        _backgroundRecordingController.add(false);
+      }
       return result == true;
     } catch (e) {
       print('停止后台录音失败: $e');
@@ -335,10 +353,45 @@ class RecordingService {
     }
   }
 
+  Timer? _backgroundStatusTimer;
+
+  // 定期检查后台录音状态
+  void _startBackgroundStatusCheck() {
+    _backgroundStatusTimer?.cancel();
+    _backgroundStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      try {
+        final isRunning = await _channel.invokeMethod('isBackgroundRecordingRunning');
+        if (isRunning != _isBackgroundRecording) {
+          _isBackgroundRecording = isRunning == true;
+          _backgroundRecordingController.add(_isBackgroundRecording);
+        }
+        if (!isRunning) {
+          _backgroundStatusTimer?.cancel();
+        }
+      } catch (e) {
+        print('检查后台录音状态失败: $e');
+      }
+    });
+  }
+
+  // 检查后台录音是否运行
+  Future<bool> isBackgroundRecordingRunning() async {
+    try {
+      final result = await _channel.invokeMethod('isBackgroundRecordingRunning');
+      _isBackgroundRecording = result == true;
+      return _isBackgroundRecording;
+    } catch (e) {
+      print('检查后台录音状态失败: $e');
+      return false;
+    }
+  }
+
   // 释放资源
   void dispose() {
     _recordingTimer?.cancel();
+    _backgroundStatusTimer?.cancel();
     _recordingStateController.close();
+    _backgroundRecordingController.close();
   }
 
   // 用于语音转写的临时录音（不保存到数据库）

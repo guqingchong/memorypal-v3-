@@ -75,6 +75,7 @@ class _HomeContentState extends State<_HomeContent> {
   List<Recording> _recentRecordings = [];
   List<Note> _recentNotes = [];
   bool _isRecording = false;
+  bool _isBackgroundRecording = false;
   int _recordingSeconds = 0;
 
   @override
@@ -82,6 +83,8 @@ class _HomeContentState extends State<_HomeContent> {
     super.initState();
     _loadData();
     _recordingService.recordingState.listen(_onRecordingStateChanged);
+    _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
+    _checkBackgroundRecordingStatus();
   }
 
   void _onRecordingStateChanged(RecordingState state) {
@@ -96,6 +99,28 @@ class _HomeContentState extends State<_HomeContent> {
           _loadData();
         }
       });
+    }
+  }
+
+  void _onBackgroundRecordingStateChanged(bool isRunning) {
+    if (mounted) {
+      setState(() {
+        _isBackgroundRecording = isRunning;
+      });
+    }
+  }
+
+  // 检查后台录音状态
+  Future<void> _checkBackgroundRecordingStatus() async {
+    try {
+      final isRunning = await _recordingService.isBackgroundRecordingRunning();
+      if (mounted) {
+        setState(() {
+          _isBackgroundRecording = isRunning;
+        });
+      }
+    } catch (e) {
+      debugPrint('检查后台录音状态失败: $e');
     }
   }
 
@@ -278,30 +303,93 @@ class _HomeContentState extends State<_HomeContent> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.record_voice_over, color: Colors.blue),
-              title: const Text('普通录音'),
-              subtitle: const Text('常规录音，保存到录音列表'),
-              onTap: () {
-                Navigator.pop(context);
-                _toggleRecording();
-              },
-            ),
+            // 普通录音选项（仅在未进行普通录音时显示）
+            if (!_isRecording)
+              ListTile(
+                leading: const Icon(Icons.record_voice_over, color: Colors.blue),
+                title: const Text('普通录音'),
+                subtitle: const Text('常规录音，保存到录音列表'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _toggleRecording();
+                },
+              ),
+            // 停止普通录音选项
+            if (_isRecording)
+              ListTile(
+                leading: const Icon(Icons.stop, color: Colors.red),
+                title: const Text('停止普通录音'),
+                subtitle: Text('已录音 $_recordingSeconds 秒'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _toggleRecording();
+                },
+              ),
             const Divider(),
-            ListTile(
-              leading: const Icon(Icons.settings_voice, color: Colors.green),
-              title: const Text('24小时环境录音'),
-              subtitle: const Text('启动后台服务，持续监听重要对话'),
-              onTap: () {
-                Navigator.pop(context);
-                _showBackgroundRecordingDialog();
-              },
-            ),
+            // 24小时环境录音选项
+            if (!_isBackgroundRecording)
+              ListTile(
+                leading: const Icon(Icons.settings_voice, color: Colors.green),
+                title: const Text('启动24小时环境录音'),
+                subtitle: const Text('后台服务，智能检测人声'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showBackgroundRecordingDialog();
+                },
+              ),
+            // 停止24小时环境录音选项
+            if (_isBackgroundRecording)
+              ListTile(
+                leading: const Icon(Icons.stop_circle, color: Colors.orange),
+                title: const Text('停止24小时环境录音'),
+                subtitle: const Text('后台录音运行中'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _stopBackgroundRecording();
+                },
+              ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
+  }
+
+  // 停止后台录音
+  Future<void> _stopBackgroundRecording() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('停止24小时环境录音'),
+        content: const Text('确定要停止后台环境录音吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('停止'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final result = await _recordingService.stopBackgroundRecording();
+      setState(() {
+        _isBackgroundRecording = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result ? '后台录音已停止' : '停止后台录音失败'),
+            backgroundColor: result ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   // 显示后台录音设置对话框
@@ -347,25 +435,65 @@ class _HomeContentState extends State<_HomeContent> {
       return;
     }
 
+    // 显示启动中提示
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在启动24小时环境录音...')),
+      );
+    }
+
     final result = await _recordingService.startBackgroundRecording();
     if (result) {
+      // 更新UI状态
+      setState(() {
+        _isBackgroundRecording = true;
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('后台录音已启动')),
+          const SnackBar(
+            content: Text('24小时环境录音已启动，将在后台持续监听'),
+            duration: Duration(seconds: 3),
+          ),
         );
       }
     } else {
+      setState(() {
+        _isBackgroundRecording = false;
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('启动后台录音失败')),
+          const SnackBar(
+            content: Text('启动后台录音失败，请检查权限设置'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
   }
 
   Widget _buildRecordingButton() {
+    // 确定当前状态
+    final bool isAnyRecording = _isRecording || _isBackgroundRecording;
+    final String statusText;
+    final String subText;
+    final IconData icon;
+
+    if (_isRecording) {
+      statusText = '普通录音中 ${_formatDuration(_recordingSeconds)}';
+      subText = '点击停止录音';
+      icon = Icons.stop_rounded;
+    } else if (_isBackgroundRecording) {
+      statusText = '24小时环境录音运行中';
+      subText = '后台智能监听中...';
+      icon = Icons.graphic_eq;
+    } else {
+      statusText = '点击开始录音';
+      subText = '长按选择模式';
+      icon = Icons.mic_rounded;
+    }
+
     return GestureDetector(
-      onTap: _toggleRecording,
+      onTap: _isBackgroundRecording ? null : _toggleRecording,
       onLongPress: _showRecordingModeSelector,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
@@ -374,15 +502,20 @@ class _HomeContentState extends State<_HomeContent> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: _isRecording
-                ? [Colors.red.shade400, Colors.red.shade700]
+            colors: isAnyRecording
+                ? (_isBackgroundRecording
+                    ? [Colors.green.shade400, Colors.green.shade700]
+                    : [Colors.red.shade400, Colors.red.shade700])
                 : [Colors.blue.shade400, Colors.blue.shade700],
           ),
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: (_isRecording ? Colors.red : Colors.blue).withOpacity(0.4),
-              blurRadius: _isRecording ? 30 : 20,
+              color: (isAnyRecording
+                      ? (_isBackgroundRecording ? Colors.green : Colors.red)
+                      : Colors.blue)
+                  .withOpacity(0.4),
+              blurRadius: isAnyRecording ? 30 : 20,
               offset: const Offset(0, 8),
             ),
           ],
@@ -391,7 +524,7 @@ class _HomeContentState extends State<_HomeContent> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // 脉冲动画（录音中）
-            if (_isRecording)
+            if (isAnyRecording)
               Container(
                 width: 72,
                 height: 72,
@@ -409,9 +542,11 @@ class _HomeContentState extends State<_HomeContent> {
                     ),
                     child: Center(
                       child: Icon(
-                        Icons.stop_rounded,
+                        icon,
                         size: 32,
-                        color: Colors.red.shade700,
+                        color: _isBackgroundRecording
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
                       ),
                     ),
                   ),
@@ -432,25 +567,17 @@ class _HomeContentState extends State<_HomeContent> {
               ),
             const SizedBox(height: 12),
             Text(
-              _isRecording
-                  ? '录音中 ${_formatDuration(_recordingSeconds)}'
-                  : '点击开始录音',
+              statusText,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
                 color: Colors.white,
               ),
             ),
-            if (!_isRecording)
-              Text(
-                '长按选择模式',
-                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
-              )
-            else
-              Text(
-                '点击停止录音',
-                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
-              ),
+            Text(
+              subText,
+              style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
+            ),
           ],
         ),
       ),
