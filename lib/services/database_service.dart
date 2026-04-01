@@ -256,22 +256,6 @@ class DatabaseService {
       )
     ''');
 
-    // 事项追踪表
-    await db.execute('''
-      CREATE TABLE tracked_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT,
-        source_id INTEGER,
-        source_type TEXT,
-        created_at INTEGER NOT NULL,
-        last_activity_at INTEGER NOT NULL,
-        is_stalled INTEGER DEFAULT 0,
-        is_completed INTEGER DEFAULT 0,
-        completed_at INTEGER
-      )
-    ''');
-
     // 导入文件表
     await db.execute('''
       CREATE TABLE imported_files (
