@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path/path.dart' as path;
 
 /// 开发者服务 - 管理开发者模式和诊断功能
 class DeveloperService {
@@ -125,27 +127,100 @@ class DeveloperService {
     _logs.clear();
   }
 
-  /// 导出日志到文件
+  /// 生成日志内容
+  String _generateLogContent() {
+    final buffer = StringBuffer();
+    buffer.writeln('MemoryPal 日志导出');
+    buffer.writeln('导出时间: ${DateTime.now()}');
+    buffer.writeln('日志条数: ${_logs.length}');
+    buffer.writeln('=' * 50);
+    buffer.writeln();
+
+    for (final log in _logs) {
+      buffer.writeln(log.toString());
+    }
+    return buffer.toString();
+  }
+
+  /// 导出日志到应用私有目录
   Future<String?> exportLogs() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/memorypal_logs_${_formatTime(DateTime.now())}.txt');
+      final fileName = 'memorypal_logs_${_formatTime(DateTime.now())}.txt';
+      final file = File('${dir.path}/$fileName');
 
-      final buffer = StringBuffer();
-      buffer.writeln('MemoryPal 日志导出');
-      buffer.writeln('导出时间: ${DateTime.now()}');
-      buffer.writeln('=' * 50);
-      buffer.writeln();
+      await file.writeAsString(_generateLogContent());
+      log('日志已导出到: ${file.path}', level: LogLevel.info, tag: 'Developer');
+      return file.path;
+    } catch (e, stack) {
+      log('导出日志失败', level: LogLevel.error, tag: 'Developer', error: e, stackTrace: stack);
+      return null;
+    }
+  }
 
-      for (final log in _logs) {
-        buffer.writeln(log.toString());
+  /// 导出日志到Download目录（用户可访问）
+  Future<String?> exportLogsToDownloads() async {
+    try {
+      String? exportPath;
+
+      // Android: 使用外部存储的Download目录
+      if (Platform.isAndroid) {
+        // 尝试找到Download目录
+        final externalDir = await getExternalStorageDirectory();
+        if (externalDir != null) {
+          // 构建Download路径
+          final downloadDir = Directory('${externalDir.parent.path}/Download');
+          if (!await downloadDir.exists()) {
+            await downloadDir.create(recursive: true);
+          }
+          exportPath = downloadDir.path;
+        }
       }
 
-      await file.writeAsString(buffer.toString());
+      // 如果上面的方法失败，使用应用文档目录
+      if (exportPath == null) {
+        final dir = await getApplicationDocumentsDirectory();
+        exportPath = dir.path;
+      }
+
+      final fileName = 'memorypal_logs_${_formatTime(DateTime.now())}.txt';
+      final file = File('$exportPath/$fileName');
+
+      await file.writeAsString(_generateLogContent());
+      log('日志已导出到Download: ${file.path}', level: LogLevel.info, tag: 'Developer');
       return file.path;
-    } catch (e) {
-      log('导出日志失败', level: LogLevel.error, error: e);
+    } catch (e, stack) {
+      log('导出日志到Download失败', level: LogLevel.error, tag: 'Developer', error: e, stackTrace: stack);
       return null;
+    }
+  }
+
+  /// 分享日志（分享到微信、邮件等）
+  Future<bool> shareLogs() async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final fileName = 'memorypal_logs_${_formatTime(DateTime.now())}.txt';
+      final file = File('${dir.path}/$fileName');
+
+      await file.writeAsString(_generateLogContent());
+
+      // 使用 share_plus 分享文件
+      final result = await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'MemoryPal 日志报告',
+        text: 'MemoryPal 应用日志，导出时间: ${DateTime.now()}',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        log('日志分享成功', level: LogLevel.info, tag: 'Developer');
+        return true;
+      } else {
+        log('日志分享取消或失败', level: LogLevel.warning, tag: 'Developer');
+        return false;
+      }
+    } catch (e, stack) {
+      log('分享日志失败', level: LogLevel.error, tag: 'Developer', error: e, stackTrace: stack);
+      return false;
     }
   }
 

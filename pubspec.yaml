@@ -79,6 +79,9 @@ dependencies:
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 
+  # 文件分享
+  share_plus: ^7.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

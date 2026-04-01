@@ -61,17 +61,73 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   Future<void> _exportLogs() async {
-    final path = await _developerService.exportLogs();
-    if (mounted) {
-      if (path != null) {
+    // 显示选项菜单
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('导出日志'),
+        content: const Text('选择导出方式：'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'internal'),
+            child: const Text('应用目录'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'download'),
+            child: const Text('Download文件夹'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'share'),
+            child: const Text('分享到微信/邮件'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null) return;
+
+    if (result == 'internal') {
+      final path = await _developerService.exportLogs();
+      if (mounted) {
+        if (path != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('日志已导出到: $path')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('导出失败'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } else if (result == 'download') {
+      final path = await _developerService.exportLogsToDownloads();
+      if (mounted) {
+        if (path != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('日志已保存到Download文件夹\n文件名: ${path.split('/').last}'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('导出到Download失败'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } else if (result == 'share') {
+      final success = await _developerService.shareLogs();
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('日志已导出到: $path')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('导出失败'),
-            backgroundColor: Colors.red,
+          SnackBar(
+            content: Text(success ? '日志分享成功' : '日志分享失败'),
+            backgroundColor: success ? Colors.green : Colors.red,
           ),
         );
       }
@@ -290,7 +346,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
             ListTile(
               leading: const Icon(Icons.download, color: Colors.purple),
               title: const Text('导出日志'),
-              subtitle: const Text('将日志导出到文件'),
+              subtitle: const Text('导出到Download或分享到微信'),
               trailing: const Icon(Icons.chevron_right),
               onTap: _exportLogs,
             ),
