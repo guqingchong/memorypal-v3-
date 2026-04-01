@@ -92,7 +92,10 @@ class _NoteListScreenState extends State<NoteListScreen> {
           FloatingActionButton.small(
             heroTag: 'voice_note',
             onPressed: () {
-              // TODO: 创建语音笔记
+              // 语音笔记 - 返回首页使用录音功能
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('请返回首页使用语音录音功能')),
+              );
             },
             child: const Icon(Icons.mic),
           ),
@@ -100,7 +103,10 @@ class _NoteListScreenState extends State<NoteListScreen> {
           FloatingActionButton(
             heroTag: 'text_note',
             onPressed: () {
-              // TODO: 创建文字笔记
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TextNoteEditorScreen()),
+              ).then((_) => _loadNotes());
             },
             child: const Icon(Icons.edit),
           ),

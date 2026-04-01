@@ -19,6 +19,14 @@ class SystemRecordingImporter {
       '/storage/emulated/0/Recordings/',
       '/storage/emulated/0/Pictures/Sounds/Recorder/',
       '/sdcard/Sounds/Recorder/',
+      // HarmonyOS 额外路径
+      '/storage/emulated/0/Music/Sounds/Recorder/',
+      '/storage/emulated/0/Audio/Recorder/',
+      '/storage/emulated/0/Huawei/Recorder/',
+      '/storage/emulated/0/Documents/Recorder/',
+      '/storage/emulated/0/CallRecordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/录音机/',
     ],
     'xiaomi': [
       '/storage/emulated/0/MIUI/sound_recorder/',
