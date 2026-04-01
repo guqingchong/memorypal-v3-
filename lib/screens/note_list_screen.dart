@@ -105,7 +105,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const TextNoteEditorScreen()),
+                MaterialPageRoute(builder: (_) => TextNoteEditorScreen()),
               ).then((_) => _loadNotes());
             },
             child: const Icon(Icons.edit),
