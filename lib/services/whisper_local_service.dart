@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:dio/dio.dart';
 import 'whisper_platform_channel.dart';
 
 /// 本地Whisper语音转写服务
@@ -24,8 +25,13 @@ class WhisperLocalService {
   // 模型状态
   bool _isInitialized = false;
   bool _isLoading = false;
+  bool _isDownloading = false;
   String? _modelPath;
   String? _error;
+
+  // 模型下载URL (HuggingFace)
+  static const String _modelUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin';
+  static const String _modelFileName = 'ggml-small.bin';
 
   // 进度回调
   final _progressController = StreamController<double>.broadcast();
@@ -34,6 +40,7 @@ class WhisperLocalService {
   // 状态获取
   bool get isInitialized => _isInitialized;
   bool get isLoading => _isLoading;
+  bool get isDownloading => _isDownloading;
   String? get error => _error;
 
   /// 初始化Whisper模型
@@ -197,6 +204,61 @@ class WhisperLocalService {
     } catch (e) {
       debugPrint('复制模型失败: $e');
       // 模型文件可能不存在于assets中
+    }
+  }
+
+  /// 从网络下载模型文件
+  ///
+  /// [onProgress] 进度回调 (0.0 - 1.0)
+  /// 返回是否下载成功
+  Future<bool> downloadModel({void Function(double progress)? onProgress}) async {
+    if (_isDownloading) return false;
+
+    _isDownloading = true;
+    _error = null;
+
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final modelDir = Directory('${docDir.path}/models');
+      if (!await modelDir.exists()) {
+        await modelDir.create(recursive: true);
+      }
+
+      final modelPath = '${modelDir.path}/$_modelFileName';
+
+      // 使用Dio下载
+      final dio = Dio();
+      await dio.download(
+        _modelUrl,
+        modelPath,
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            final progress = received / total;
+            onProgress?.call(progress);
+            _progressController.add(progress);
+          }
+        },
+      );
+
+      // 验证文件
+      final file = File(modelPath);
+      if (await file.exists()) {
+        final size = await file.length();
+        if (size > 10 * 1024 * 1024) { // 至少10MB
+          _modelPath = modelPath;
+          _isDownloading = false;
+          return true;
+        }
+      }
+
+      _error = '下载文件验证失败';
+      _isDownloading = false;
+      return false;
+    } catch (e) {
+      _error = '下载失败: $e';
+      debugPrint('下载模型失败: $e');
+      _isDownloading = false;
+      return false;
     }
   }
 

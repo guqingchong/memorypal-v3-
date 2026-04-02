@@ -114,10 +114,32 @@ class SystemRecordingImporter {
   /// 检查存储权限
   Future<bool> _checkPermission() async {
     if (Platform.isAndroid) {
-      // Android 13+ 使用 READ_MEDIA_AUDIO
+      // Android 13+ (API 33+) 使用 READ_MEDIA_AUDIO
       final audioStatus = await Permission.audio.status;
       if (audioStatus.isGranted) {
         debugPrint('已有音频权限');
+        return true;
+      }
+      if (await Permission.audio.request().isGranted) {
+        debugPrint('音频权限已获取');
+        return true;
+      }
+
+      // Android 11+ (API 30+) 使用 MANAGE_EXTERNAL_STORAGE
+      final manageStatus = await Permission.manageExternalStorage.status;
+      if (manageStatus.isGranted) {
+        debugPrint('已有管理外部存储权限');
+        return true;
+      }
+      if (await Permission.manageExternalStorage.request().isGranted) {
+        debugPrint('管理外部存储权限已获取');
+        return true;
+      }
+
+      // 旧版本使用存储权限
+      final storageStatus = await Permission.storage.status;
+      if (storageStatus.isGranted) {
+        debugPrint('已有存储权限');
         return true;
       }
       if (await Permission.audio.request().isGranted) {
@@ -291,12 +313,15 @@ class SystemRecordingImporter {
     debugPrint('开始扫描系统录音...');
 
     // 检查权限
-    if (!await _checkPermission()) {
+    final hasPermission = await _checkPermission();
+    if (!hasPermission) {
       debugPrint('存储权限未授予，无法扫描');
-      throw Exception('需要存储权限才能扫描系统录音');
+      throw Exception('需要存储权限才能扫描系统录音。请前往设置开启存储权限。');
     }
 
     final imported = <Recording>[];
+    int totalDirsChecked = 0;
+    int totalDirsExist = 0;
 
     // 扫描所有可能的录音目录
     for (final entry in RECORDING_PATHS.entries) {
@@ -306,6 +331,7 @@ class SystemRecordingImporter {
       debugPrint('扫描 $brand 的录音目录...');
 
       for (final path in paths) {
+        totalDirsChecked++;
         final dir = Directory(path);
         debugPrint('检查目录: $path');
 
@@ -315,9 +341,19 @@ class SystemRecordingImporter {
             continue;
           }
 
+          totalDirsExist++;
           debugPrint('目录存在，开始扫描文件...');
-          final files = await dir
-              .list()
+
+          // 尝试列出文件
+          List<FileSystemEntity> entities;
+          try {
+            entities = await dir.list().toList();
+          } catch (e) {
+            debugPrint('无法读取目录 $path: $e');
+            continue;
+          }
+
+          final files = entities
               .where((entity) => entity is File)
               .map((entity) => entity as File)
               .where((file) => _isAudioFile(file.path))
@@ -342,7 +378,7 @@ class SystemRecordingImporter {
       }
     }
 
-    debugPrint('扫描完成，共导入 ${imported.length} 条录音');
+    debugPrint('扫描完成: 检查了 $totalDirsChecked 个目录, $totalDirsExist 个存在, 导入 ${imported.length} 条录音');
     return imported;
   }
 
