@@ -357,6 +357,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // 先尝试用Kimi API
     if (_kimiService.isAvailable) {
+      debugPrint('Kimi API可用，调用云端AI...');
+
       // 获取相关上下文
       final recordings = await _databaseService.getRecordings(limit: 20);
       final notes = await _databaseService.getNotes(limit: 20);
@@ -377,10 +379,16 @@ class _ChatScreenState extends State<ChatScreen> {
         context.add('[笔记 ${n.createdAt.month}/${n.createdAt.day}] ${n.title}: ${n.content.substring(0, n.content.length > 100 ? 100 : n.content.length)}');
       }
 
-      final response = await _kimiService.askQuestion(question, context: context);
-      if (response != null) {
-        return response;
+      try {
+        final response = await _kimiService.askQuestion(question, context: context);
+        if (response != null && response.isNotEmpty) {
+          return response;
+        }
+      } catch (e) {
+        debugPrint('Kimi API调用失败: $e');
       }
+    } else {
+      debugPrint('Kimi API不可用 (API Key: ${_kimiService.apiKey != null ? "已设置" : "未设置"})');
     }
 
     // 离线模式：基于本地数据和用户画像简单回答
@@ -448,7 +456,31 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    return '$greeting我理解你想了解 "$question"。\n\n${_buildPersonalizedHint()}\n\n如果云端AI服务可用，我会给你更详细的回答。';
+    // 根据是否有API Key给出不同提示
+    final hasApiKey = _kimiService.apiKey != null;
+    final buffer = StringBuffer();
+
+    buffer.writeln('$greeting我理解你想了解 "$question"。');
+    buffer.writeln('');
+
+    if (!hasApiKey) {
+      buffer.writeln('⚠️ **离线模式**');
+      buffer.writeln('当前未配置Kimi API Key，我只能基于本地数据简单回答。');
+      buffer.writeln('');
+      buffer.writeln('如需启用云端AI：');
+      buffer.writeln('1. 前往 设置 → AI设置');
+      buffer.writeln('2. 配置Kimi API Key（从 moonshot.cn 获取）');
+      buffer.writeln('');
+    }
+
+    buffer.writeln('💡 **我可以帮你：**');
+    buffer.writeln('• 查询待办事项');
+    buffer.writeln('• 搜索最近记录');
+    buffer.writeln('• 查看导入的文件');
+    buffer.writeln('');
+    buffer.writeln(_buildPersonalizedHint());
+
+    return buffer.toString();
   }
 
   // 构建个性化提示

@@ -44,7 +44,7 @@ class WhisperService {
   }
 
   // 转写音频文件
-  Future<TranscriptionResult?> transcribe(String audioPath) async {
+  Future<TranscriptionResult?> transcribe(String audioPath, {String language = 'zh'}) async {
     if (!_isInitialized) {
       await initialize();
     }
@@ -52,17 +52,29 @@ class WhisperService {
     try {
       final result = await _channel.invokeMethod('transcribe', {
         'audioPath': audioPath,
+        'language': language,
       });
 
+      // 适配原生层返回格式：原生返回String，Flutter包装为结果对象
+      if (result is String) {
+        return TranscriptionResult(
+          text: result,
+          language: language,
+          segments: null,
+        );
+      }
+
+      // 如果原生层改为返回Map，也支持
       if (result is Map) {
         return TranscriptionResult(
-          text: result['text'] as String,
-          language: result['language'] as String?,
+          text: result['text'] as String? ?? '',
+          language: result['language'] as String? ?? language,
           segments: (result['segments'] as List<dynamic>?)
               ?.map((s) => TranscriptionSegment.fromMap(s))
               .toList(),
         );
       }
+
       return null;
     } catch (e) {
       print('转写失败: $e');
