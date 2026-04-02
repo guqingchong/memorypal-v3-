@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 // Kimi服务 - 云端深度分析
+// 支持两种平台：
+// 1. Moonshot AI (platform.moonshot.cn) - API Key格式: sk-xxx
+// 2. KimiCode (kimi.com/code) - API Key格式: sk-kimi-xxx
 class KimiService {
   static final KimiService _instance = KimiService._internal();
   factory KimiService() => _instance;
@@ -10,6 +13,7 @@ class KimiService {
   final Dio _dio = Dio();
   String? _apiKey;
   bool _isEnabled = true;
+  bool _isKimiCode = false; // 是否为KimiCode平台
 
   // 月度预算控制
   double _monthlyBudget = 0; // 0表示无限制
@@ -20,19 +24,31 @@ class KimiService {
     _apiKey = apiKey;
     _monthlyBudget = monthlyBudget ?? 0;
 
-    _dio.options.baseUrl = 'https://api.moonshot.cn/v1';
+    // 自动检测平台：KimiCode使用 api.kimi.com，Moonshot使用 api.moonshot.cn
+    _isKimiCode = _apiKey?.startsWith('sk-kimi-') ?? false;
+    _dio.options.baseUrl = _isKimiCode
+        ? 'https://api.kimi.com/coding/v1'  // KimiCode平台
+        : 'https://api.moonshot.cn/v1';      // Moonshot平台
+
     _dio.options.headers = {
       'Content-Type': 'application/json',
       if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
     };
     _dio.options.connectTimeout = const Duration(seconds: 30);
     _dio.options.receiveTimeout = const Duration(seconds: 60);
+
+    print('KimiService初始化: ${_isKimiCode ? "KimiCode平台" : "Moonshot平台"}, baseUrl=${_dio.options.baseUrl}, model=${_getModelName()}');
   }
 
   // 设置API密钥
   void setApiKey(String apiKey) {
     _apiKey = apiKey;
+    _isKimiCode = apiKey.startsWith('sk-kimi-');
     _dio.options.headers['Authorization'] = 'Bearer $apiKey';
+    // 重新设置baseUrl
+    _dio.options.baseUrl = _isKimiCode
+        ? 'https://api.kimi.com/coding/v1'
+        : 'https://api.moonshot.cn/v1';
   }
 
   // 启用/禁用云端分析
@@ -46,6 +62,11 @@ class KimiService {
   // 获取API Key（用于其他服务）
   String? get apiKey => _apiKey;
 
+  // 获取当前使用的模型名称
+  String _getModelName() {
+    return _isKimiCode ? 'kimi-k2-0723' : 'moonshot-v1-8k';
+  }
+
   // 检查预算是否超限
   bool get isWithinBudget {
     if (_monthlyBudget <= 0) return true;
@@ -58,7 +79,7 @@ class KimiService {
 
     try {
       final response = await _dio.post('/chat/completions', data: {
-        'model': 'moonshot-v1-8k',
+        'model': _getModelName(),
         'messages': [
           {
             'role': 'system',
@@ -92,7 +113,7 @@ class KimiService {
 
     try {
       final response = await _dio.post('/chat/completions', data: {
-        'model': 'moonshot-v1-8k',
+        'model': _getModelName(),
         'messages': [
           {
             'role': 'system',
@@ -120,7 +141,14 @@ class KimiService {
 
   // 智能问答
   Future<String?> askQuestion(String question, {List<String>? context}) async {
-    if (!isAvailable || !isWithinBudget) return null;
+    if (!isAvailable) {
+      print('Kimi API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}');
+      return null;
+    }
+    if (!isWithinBudget) {
+      print('Kimi API预算已超限');
+      return null;
+    }
 
     try {
       final messages = <Map<String, String>>[
@@ -142,15 +170,27 @@ class KimiService {
         'content': question,
       });
 
+      final modelName = _getModelName();
+      print('调用Kimi API: platform=${_isKimiCode ? "KimiCode" : "Moonshot"}, model=$modelName');
+
       final response = await _dio.post('/chat/completions', data: {
-        'model': 'moonshot-v1-8k',
+        'model': modelName,
         'messages': messages,
         'temperature': 0.7,
       });
 
       _trackUsage(response);
 
-      return response.data['choices'][0]['message']['content'] as String;
+      final content = response.data['choices'][0]['message']['content'] as String?;
+      print('Kimi API响应成功, 内容长度: ${content?.length ?? 0}');
+      return content;
+    } on DioException catch (e) {
+      print('Kimi API调用失败: ${e.type} - ${e.message}');
+      if (e.response != null) {
+        print('响应状态: ${e.response?.statusCode}');
+        print('响应数据: ${e.response?.data}');
+      }
+      return null;
     } catch (e) {
       print('问答失败: $e');
       return null;
@@ -163,7 +203,7 @@ class KimiService {
 
     try {
       final response = await _dio.post('/chat/completions', data: {
-        'model': 'moonshot-v1-8k',
+        'model': _getModelName(),
         'messages': [
           {
             'role': 'system',
