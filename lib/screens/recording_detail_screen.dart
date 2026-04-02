@@ -290,16 +290,6 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
       }
     }
   }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('转写失败，请检查网络连接'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
 
   String _formatDuration(double seconds) {
     final mins = (seconds ~/ 60).toString().padLeft(2, '0');

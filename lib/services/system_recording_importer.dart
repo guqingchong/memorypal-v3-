@@ -142,30 +142,8 @@ class SystemRecordingImporter {
         debugPrint('已有存储权限');
         return true;
       }
-      if (await Permission.audio.request().isGranted) {
-        debugPrint('音频权限已获取');
-        return true;
-      }
-
-      // 旧版本使用存储权限
-      final storageStatus = await Permission.storage.status;
-      if (storageStatus.isGranted) {
-        debugPrint('已有存储权限');
-        return true;
-      }
       if (await Permission.storage.request().isGranted) {
         debugPrint('存储权限已获取');
-        return true;
-      }
-
-      // 尝试管理外部存储（Android 11+）
-      final manageStatus = await Permission.manageExternalStorage.status;
-      if (manageStatus.isGranted) {
-        debugPrint('已有管理外部存储权限');
-        return true;
-      }
-      if (await Permission.manageExternalStorage.request().isGranted) {
-        debugPrint('管理外部存储权限已获取');
         return true;
       }
 
