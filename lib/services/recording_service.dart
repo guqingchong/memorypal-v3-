@@ -67,10 +67,12 @@ class RecordingService {
         _recordingStateController.add(RecordingState.error(error));
         break;
       case 'onSegmentSaved':
-        // 分段保存完成
-        final filePath = call.arguments as String;
-        _developerService.log('后台录音分段已保存: $filePath', tag: 'Recording');
-        await _processSegment(filePath);
+        // 分段保存完成 - 处理Map参数
+        final args = call.arguments as Map<dynamic, dynamic>;
+        final filePath = args['filePath'] as String;
+        final duration = args['duration'] as int? ?? 0;
+        _developerService.log('后台录音分段已保存: $filePath, 时长: ${duration}ms', tag: 'Recording');
+        await _processSegment(filePath, duration);
         break;
     }
   }
@@ -287,24 +289,29 @@ class RecordingService {
   }
 
   // 处理分段录音（24小时录音模式）
-  Future<void> _processSegment(String filePath) async {
-    _developerService.log('处理后台录音分段: $filePath', tag: 'Recording');
+  Future<void> _processSegment(String filePath, int durationMs) async {
+    _developerService.log('处理后台录音分段: $filePath, 时长: ${durationMs}ms', tag: 'Recording');
 
     try {
       // 获取当前位置信息
       final location = await _locationService.getCurrentLocationInfo();
       _developerService.log('分段录音位置: ${location?.address ?? "未获取"}', tag: 'Recording');
 
+      // 计算实际时长（毫秒转秒）
+      final durationSeconds = (durationMs / 1000).round();
+      // 计算开始时间
+      final endTime = DateTime.now();
+      final startTime = endTime.subtract(Duration(milliseconds: durationMs));
+
       // 生成智能标题
-      final startTime = DateTime.now().subtract(const Duration(minutes: 5));
       final title = await _generateSmartTitleForSegment(startTime, location);
 
       // 将分段录音保存到数据库
       final recording = Recording(
         filePath: filePath,
         startTime: startTime,
-        endTime: DateTime.now(),
-        durationSeconds: 300, // 5分钟分段
+        endTime: endTime,
+        durationSeconds: durationSeconds,
         title: title,
         latitude: location?.latitude,
         longitude: location?.longitude,
@@ -312,7 +319,7 @@ class RecordingService {
       );
 
       final id = await _databaseService.insertRecording(recording);
-      _developerService.log('后台录音分段已保存到数据库，ID: $id', tag: 'Recording');
+      _developerService.log('后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒', tag: 'Recording');
     } catch (e, stack) {
       _developerService.log(
         '处理后台录音分段失败',

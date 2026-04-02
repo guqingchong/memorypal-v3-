@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
 import '../services/transcription_service.dart';
 import '../services/whisper_local_service.dart';
+import '../services/developer_service.dart';
 import '../widgets/model_download_dialog.dart';
 
 /// 录音详情/播放页面
@@ -28,11 +31,17 @@ class RecordingDetailScreen extends StatefulWidget {
 class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   final _databaseService = DatabaseService();
   final _transcriptionService = TranscriptionService();
+  final _developerService = DeveloperService();
+
+  // 音频播放器
+  AudioPlayer? _audioPlayer;
+  PlayerState? _playerState;
 
   bool _isPlaying = false;
   double _currentPosition = 0;
   double _duration = 0;
-  Timer? _progressTimer;
+  bool _isLoadingAudio = false;
+  String? _audioError;
 
   // 转写文本选择相关
   TextEditingController? _textSelectionController;
@@ -54,6 +63,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   void initState() {
     super.initState();
     _duration = widget.recording.durationSeconds.toDouble();
+    _initAudioPlayer();
     // 如果有转写内容，自动提取待办
     if (widget.recording.transcript?.isNotEmpty == true &&
         !widget.recording.transcript!.contains('[离线模式]')) {
@@ -61,46 +71,145 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     }
   }
 
+  Future<void> _initAudioPlayer() async {
+    _audioPlayer = AudioPlayer();
+
+    // 监听播放器状态
+    _audioPlayer!.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() {
+          _playerState = state;
+          _isPlaying = state == PlayerState.playing;
+        });
+      }
+    });
+
+    // 监听播放位置
+    _audioPlayer!.onPositionChanged.listen((position) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = position.inMilliseconds / 1000.0;
+        });
+      }
+    });
+
+    // 监听总时长
+    _audioPlayer!.onDurationChanged.listen((duration) {
+      if (mounted) {
+        setState(() {
+          _duration = duration.inMilliseconds / 1000.0;
+        });
+      }
+    });
+
+    // 监听播放完成
+    _audioPlayer!.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _currentPosition = 0;
+        });
+      }
+    });
+
+    // 预加载音频文件
+    await _loadAudioFile();
+  }
+
+  Future<void> _loadAudioFile() async {
+    if (widget.recording.filePath.isEmpty) {
+      setState(() {
+        _audioError = '音频文件路径为空';
+      });
+      return;
+    }
+
+    final file = File(widget.recording.filePath);
+    if (!await file.exists()) {
+      setState(() {
+        _audioError = '音频文件不存在: ${widget.recording.filePath}';
+      });
+      _developerService.log(
+        '音频文件不存在: ${widget.recording.filePath}',
+        level: LogLevel.error,
+        tag: 'AudioPlayer',
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        _isLoadingAudio = true;
+        _audioError = null;
+      });
+
+      // 设置音频源
+      await _audioPlayer!.setSourceDeviceFile(widget.recording.filePath);
+
+      // 获取音频时长
+      final duration = await _audioPlayer!.getDuration();
+      if (duration != null && mounted) {
+        setState(() {
+          _duration = duration.inMilliseconds / 1000.0;
+        });
+      }
+
+      _developerService.log(
+        '音频文件加载成功: ${widget.recording.filePath}, 时长: ${_duration}s',
+        tag: 'AudioPlayer',
+      );
+    } catch (e, stack) {
+      _developerService.log(
+        '音频文件加载失败: $e',
+        level: LogLevel.error,
+        tag: 'AudioPlayer',
+        error: e,
+        stackTrace: stack,
+      );
+      if (mounted) {
+        setState(() {
+          _audioError = '音频加载失败: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingAudio = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
-    _progressTimer?.cancel();
+    _audioPlayer?.dispose();
     _textSelectionController?.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _togglePlay() {
-    setState(() {
-      _isPlaying = !_isPlaying;
-      if (_isPlaying) {
-        _startProgressTimer();
-      } else {
-        _progressTimer?.cancel();
+  Future<void> _togglePlay() async {
+    if (_audioPlayer == null || _audioError != null) return;
+
+    if (_isPlaying) {
+      await _audioPlayer!.pause();
+    } else {
+      // 如果已到结尾，从头开始
+      if (_currentPosition >= _duration - 0.1) {
+        await _audioPlayer!.seek(Duration.zero);
       }
-    });
+      await _audioPlayer!.resume();
+    }
   }
 
-  void _startProgressTimer() {
-    _progressTimer?.cancel();
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (_currentPosition < _duration) {
-        setState(() {
-          _currentPosition += 0.1;
-        });
-      } else {
-        setState(() {
-          _isPlaying = false;
-          _currentPosition = 0;
-        });
-        _progressTimer?.cancel();
-      }
-    });
-  }
-
-  void _seek(double position) {
-    setState(() {
-      _currentPosition = position.clamp(0, _duration);
-    });
+  Future<void> _seek(double position) async {
+    final clampedPosition = position.clamp(0.0, _duration);
+    await _audioPlayer?.seek(Duration(milliseconds: (clampedPosition * 1000).toInt()));
+    if (mounted) {
+      setState(() {
+        _currentPosition = clampedPosition;
+      });
+    }
   }
 
   // 显示创建待办对话框
@@ -524,14 +633,53 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   }
 
   Widget _buildPlayerControls() {
+    // 显示加载状态
+    if (_isLoadingAudio) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        child: const Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 8),
+            Text('加载音频...', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
+    }
+
+    // 显示错误状态
+    if (_audioError != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 8),
+            Text(
+              '音频加载失败',
+              style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _audioError!,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           // 进度条
           Slider(
-            value: _currentPosition,
-            max: _duration > 0 ? _duration : 1,
+            value: _currentPosition.clamp(0.0, _duration > 0 ? _duration : 1.0),
+            max: _duration > 0 ? _duration : 1.0,
             onChanged: _seek,
           ),
 

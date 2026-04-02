@@ -282,8 +282,8 @@ class BackgroundRecordingService : Service() {
             if (wavFile != null) {
                 totalSegmentsSaved++
                 Log.i(TAG, "保存录音段: ${wavFile.name}, 时长: ${duration}ms")
-                // 通知Flutter层有新录音
-                notifySegmentSaved(wavFile.absolutePath)
+                // 通知Flutter层有新录音，传递时长（转换为秒）
+                notifySegmentSaved(wavFile.absolutePath, duration)
             }
             // 删除临时PCM文件
             currentPcmFile?.delete()
@@ -299,12 +299,15 @@ class BackgroundRecordingService : Service() {
     /**
      * 通知Flutter层有新录音段保存
      */
-    private fun notifySegmentSaved(filePath: String) {
+    private fun notifySegmentSaved(filePath: String, duration: Long = 0) {
         val intent = Intent("com.memorypal.SEGMENT_SAVED").apply {
             putExtra("filePath", filePath)
+            putExtra("duration", duration)
+            // 设置包名确保只有本应用能接收
+            setPackage(packageName)
         }
         sendBroadcast(intent)
-        Log.d(TAG, "已发送录音保存广播: $filePath")
+        Log.d(TAG, "已发送录音保存广播: $filePath, duration: ${duration}ms")
     }
 
     private fun convertPcmToWav(pcmFile: File): File? {

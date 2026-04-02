@@ -29,8 +29,11 @@ class WhisperLocalService {
   String? _modelPath;
   String? _error;
 
-  // 模型下载URL (HuggingFace)
-  static const String _modelUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin';
+  // 模型下载URL (多个备用源)
+  static const List<String> _modelUrls = [
+    'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small.bin', // 国内镜像
+    'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin', // 官方源
+  ];
   static const String _modelFileName = 'ggml-small.bin';
 
   // 进度回调
@@ -217,49 +220,67 @@ class WhisperLocalService {
     _isDownloading = true;
     _error = null;
 
-    try {
-      final docDir = await getApplicationDocumentsDirectory();
-      final modelDir = Directory('${docDir.path}/models');
-      if (!await modelDir.exists()) {
-        await modelDir.create(recursive: true);
-      }
-
-      final modelPath = '${modelDir.path}/$_modelFileName';
-
-      // 使用Dio下载
-      final dio = Dio();
-      await dio.download(
-        _modelUrl,
-        modelPath,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            final progress = received / total;
-            onProgress?.call(progress);
-            _progressController.add(progress);
-          }
-        },
-      );
-
-      // 验证文件
-      final file = File(modelPath);
-      if (await file.exists()) {
-        final size = await file.length();
-        if (size > 10 * 1024 * 1024) { // 至少10MB
-          _modelPath = modelPath;
-          _isDownloading = false;
-          return true;
-        }
-      }
-
-      _error = '下载文件验证失败';
-      _isDownloading = false;
-      return false;
-    } catch (e) {
-      _error = '下载失败: $e';
-      debugPrint('下载模型失败: $e');
-      _isDownloading = false;
-      return false;
+    final docDir = await getApplicationDocumentsDirectory();
+    final modelDir = Directory('${docDir.path}/models');
+    if (!await modelDir.exists()) {
+      await modelDir.create(recursive: true);
     }
+
+    final modelPath = '${modelDir.path}/$_modelFileName';
+
+    // 尝试多个下载源
+    for (int i = 0; i < _modelUrls.length; i++) {
+      final url = _modelUrls[i];
+      try {
+        debugPrint('尝试下载模型 (${i + 1}/${_modelUrls.length}): $url');
+        _error = null;
+
+        // 使用Dio下载，设置超时
+        final dio = Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(minutes: 10),
+        ));
+
+        await dio.download(
+          url,
+          modelPath,
+          onReceiveProgress: (received, total) {
+            if (total > 0) {
+              final progress = received / total;
+              onProgress?.call(progress);
+              _progressController.add(progress);
+            }
+          },
+        );
+
+        // 验证文件
+        final file = File(modelPath);
+        if (await file.exists()) {
+          final size = await file.length();
+          if (size > 10 * 1024 * 1024) { // 至少10MB
+            _modelPath = modelPath;
+            _isDownloading = false;
+            debugPrint('模型下载成功: ${(size / 1024 / 1024).toStringAsFixed(1)} MB');
+            return true;
+          }
+        }
+
+        _error = '下载文件验证失败';
+      } on DioException catch (e) {
+        _error = '下载失败 (${i + 1}/${_modelUrls.length}): ${e.message}';
+        debugPrint('下载模型失败 (${i + 1}/${_modelUrls.length}): ${e.message}');
+        // 继续尝试下一个URL
+        continue;
+      } catch (e) {
+        _error = '下载失败 (${i + 1}/${_modelUrls.length}): $e';
+        debugPrint('下载模型失败 (${i + 1}/${_modelUrls.length}): $e');
+        // 继续尝试下一个URL
+        continue;
+      }
+    }
+
+    _isDownloading = false;
+    return false;
   }
 
   /// 检查模型文件是否已下载

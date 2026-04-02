@@ -11,42 +11,59 @@ import 'services/notification_service.dart';
 import 'services/scheduler_service.dart';
 import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
+import 'services/kimi_service.dart';
+import 'services/settings_service.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+Future<void> main() async {
+  // 在Zone内完成所有初始化，避免Zone mismatch错误
+  await runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化开发者服务
-  final developerService = DeveloperService();
-  developerService.initialize();
+      // 初始化开发者服务
+      final developerService = DeveloperService();
+      developerService.initialize();
 
-  // 捕获全局错误
-  FlutterError.onError = (FlutterErrorDetails details) {
-    developerService.log(
-      'Flutter错误: ${details.exception}',
-      level: LogLevel.error,
-      tag: 'Flutter',
-      error: details.exception,
-      stackTrace: details.stack,
-    );
-    FlutterError.presentError(details);
-  };
+      // 初始化设置服务并加载Kimi API Key
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final kimiApiKey = await settingsService.getKimiApiKey();
+      if (kimiApiKey != null && kimiApiKey.isNotEmpty) {
+        KimiService().initialize(apiKey: kimiApiKey);
+        developerService.log('Kimi服务已初始化', tag: 'AppInit');
+      } else {
+        developerService.log('Kimi API Key未设置', tag: 'AppInit');
+      }
 
-  // 捕获异步错误
-  PlatformDispatcher.instance.onError = (error, stack) {
-    developerService.log(
-      '平台错误: $error',
-      level: LogLevel.error,
-      tag: 'Platform',
-      error: error,
-      stackTrace: stack,
-    );
-    return true;
-  };
+      // 捕获全局错误
+      FlutterError.onError = (FlutterErrorDetails details) {
+        developerService.log(
+          'Flutter错误: ${details.exception}',
+          level: LogLevel.error,
+          tag: 'Flutter',
+          error: details.exception,
+          stackTrace: details.stack,
+        );
+        FlutterError.presentError(details);
+      };
 
-  runZonedGuarded(
-    () => runApp(const MyApp()),
+      // 捕获异步错误
+      PlatformDispatcher.instance.onError = (error, stack) {
+        developerService.log(
+          '平台错误: $error',
+          level: LogLevel.error,
+          tag: 'Platform',
+          error: error,
+          stackTrace: stack,
+        );
+        return true;
+      };
+
+      runApp(const MyApp());
+    },
     (error, stack) {
-      developerService.log(
+      // Zone级别的错误捕获
+      DeveloperService().log(
         '未捕获错误: $error',
         level: LogLevel.error,
         tag: 'Zone',
@@ -54,7 +71,7 @@ void main() {
         stackTrace: stack,
       );
     },
-  );
+  )!;
 }
 
 class MyApp extends StatelessWidget {

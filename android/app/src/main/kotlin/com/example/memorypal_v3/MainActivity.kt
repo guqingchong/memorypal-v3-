@@ -137,22 +137,28 @@ class MainActivity : FlutterActivity() {
         segmentSavedReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val filePath = intent.getStringExtra("filePath")
-                Log.d("MainActivity", "Segment saved: $filePath")
+                val duration = intent.getLongExtra("duration", 0)
+                Log.d("MainActivity", "Segment saved: $filePath, duration: ${duration}ms")
 
-                // 转发到 Flutter
+                // 转发到 Flutter - 传递包含文件路径和时长的Map
                 filePath?.let {
-                    recordingMethodChannel?.invokeMethod("onSegmentSaved", it)
+                    val args = hashMapOf<String, Any>(
+                        "filePath" to it,
+                        "duration" to duration
+                    )
+                    recordingMethodChannel?.invokeMethod("onSegmentSaved", args)
                 }
             }
         }
 
-        // 注册广播接收器
+        // 注册广播接收器 - 使用EXPORTED允许服务发送广播
         val filter = IntentFilter("com.memorypal.SEGMENT_SAVED")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(segmentSavedReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(segmentSavedReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(segmentSavedReceiver, filter)
         }
+        Log.d("MainActivity", "SegmentSavedReceiver registered")
     }
 
     /**
