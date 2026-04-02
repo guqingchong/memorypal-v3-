@@ -76,6 +76,9 @@ dependencies:
   # Word文档解析
   docx_to_text: ^1.0.1
 
+  # 音频播放
+  audioplayers: ^5.2.1
+
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 
