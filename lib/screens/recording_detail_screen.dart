@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
 import '../services/transcription_service.dart';
+import '../services/whisper_local_service.dart';
+import '../widgets/model_download_dialog.dart';
 
 /// 录音详情/播放页面
 ///
@@ -228,6 +230,21 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   Future<void> _requestCloudTranscription() async {
     if (widget.recording.filePath.isEmpty) return;
 
+    // 检查Whisper模型是否已下载
+    final whisperService = WhisperLocalService();
+    final isModelDownloaded = await whisperService.isModelDownloaded();
+    
+    if (!isModelDownloaded) {
+      // 显示下载对话框
+      final downloaded = await ModelDownloadDialog.show(context);
+      if (!downloaded) {
+        // 用户取消下载
+        return;
+      }
+    }
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -263,6 +280,16 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('转写完成')),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('转写失败，请检查网络连接'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
