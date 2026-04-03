@@ -139,8 +139,8 @@ class KimiService {
     }
   }
 
-  // 智能问答
-  Future<String?> askQuestion(String question, {List<String>? context}) async {
+  // 智能问答 - 支持深度对话和用户画像学习
+  Future<String?> askQuestion(String question, {List<String>? context, List<Map<String, String>>? conversationHistory}) async {
     if (!isAvailable) {
       print('Kimi API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}');
       return null;
@@ -151,32 +151,68 @@ class KimiService {
     }
 
     try {
-      final messages = <Map<String, String>>[
-        {
-          'role': 'system',
-          'content': '你是MemoryPal智能助理，基于用户的记忆数据回答问题。如果信息不足，请明确告知。'
-        },
-      ];
+      final messages = <Map<String, String>>[];
 
+      // 系统提示词 - 定义AI角色和行为准则
+      final systemPrompt = '''你是MemoryPal，用户的24小时智能助理。你的特点是：
+
+1. **深度个性化**：你全面了解用户的画像（职业、兴趣、习惯、目标、性格等），回答时自然融入这些信息。
+
+2. **主动关联**：不局限于回答问题，主动关联用户的相关经历和偏好，提供有价值的洞察。
+
+3. **学习进化**：每次对话都在加深对用户的理解，回答越来越个性化。
+
+4. **对话风格**：
+   - 用"你"而不是"用户"来称呼
+   - 语气亲切、专业、有见地
+   - 适当使用表情符号增加亲和力
+   - 回答结构清晰，重点突出
+
+5. **回答原则**：
+   - 基于提供的画像和记忆数据回答
+   - 不确定时坦诚告知，不编造
+   - 鼓励用户多记录以加深了解
+   - 主动提出有价值的后续问题
+
+记住：你的目标是成为最懂用户的智能助理。''';
+
+      messages.add({
+        'role': 'system',
+        'content': systemPrompt,
+      });
+
+      // 添加上下文（用户画像、记忆数据等）
       if (context != null && context.isNotEmpty) {
         messages.add({
           'role': 'user',
-          'content': '相关背景信息：\n${context.join("\n")}',
+          'content': '【上下文信息】\n${context.join("\n\n")}',
+        });
+        // 让系统确认收到上下文
+        messages.add({
+          'role': 'assistant',
+          'content': '已了解上下文信息。我会基于这些信息为你提供个性化回答。',
         });
       }
 
+      // 添加对话历史（如果有）
+      if (conversationHistory != null && conversationHistory.isNotEmpty) {
+        messages.addAll(conversationHistory);
+      }
+
+      // 添加当前问题
       messages.add({
         'role': 'user',
         'content': question,
       });
 
       final modelName = _getModelName();
-      print('调用Kimi API: platform=${_isKimiCode ? "KimiCode" : "Moonshot"}, model=$modelName');
+      print('调用Kimi API: platform=${_isKimiCode ? "KimiCode" : "Moonshot"}, model=$modelName, messages=${messages.length}');
 
       final response = await _dio.post('/chat/completions', data: {
         'model': modelName,
         'messages': messages,
-        'temperature': 0.7,
+        'temperature': 0.8, // 稍高的温度增加创造性
+        'max_tokens': 2000, // 允许较长的回复
       });
 
       _trackUsage(response);

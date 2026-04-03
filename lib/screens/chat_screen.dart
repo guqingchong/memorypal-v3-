@@ -42,19 +42,58 @@ class _ChatScreenState extends State<ChatScreen> {
   UserProfile? _userProfile;
   bool _isLoadingProfile = true;
 
-  // 快捷询问选项
-  final List<String> _quickQuestions = [
-    '我最近有什么待办？',
-    '上周我记录了什么重要内容？',
-    '我最近在忙什么项目？',
-    '帮我找一下会议纪要',
-  ];
+  // 快捷询问选项 - 更自然的对话引导
+  List<String> get _quickQuestions {
+    final questions = <String>[];
+
+    // 根据用户画像个性化快捷问题
+    if (_userProfile?.occupation != null) {
+      questions.add('最近工作有什么进展？');
+    }
+    if (_userProfile?.shortTermGoals != null) {
+      questions.add('我的目标完成得怎么样了？');
+    }
+
+    questions.addAll([
+      '总结一下我最近的状态',
+      '根据我的习惯，给我一些建议',
+      '我今天有什么安排吗？',
+      '帮我分析最近的思考模式',
+    ]);
+
+    return questions.take(4).toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
-    _addWelcomeMessage();
+    _loadChatHistory();
+  }
+
+  // 加载对话历史
+  Future<void> _loadChatHistory() async {
+    try {
+      final messages = await _databaseService.getChatMessages(limit: 100);
+      if (messages.isNotEmpty) {
+        setState(() {
+          _messages.clear();
+          for (final m in messages) {
+            _messages.add(ChatMessage(
+              isUser: (m['is_user'] as int) == 1,
+              content: m['content'] as String,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(m['timestamp'] as int),
+              isSearchResult: (m['is_search_result'] as int? ?? 0) == 1,
+            ));
+          }
+        });
+      } else {
+        _addWelcomeMessage();
+      }
+    } catch (e) {
+      debugPrint('加载对话历史失败: $e');
+      _addWelcomeMessage();
+    }
   }
 
   // 加载用户画像
@@ -76,14 +115,46 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _addWelcomeMessage() {
-    String welcomeText = '你好！我是你的MemoryPal智能助理。\n\n我可以帮你：\n• 查找过去的录音和笔记\n• 回答关于你记忆的问题\n• 提取待办事项\n• 分析你的习惯和偏好\n\n有什么可以帮你的吗？';
+    String welcomeText;
 
-    // 如果有用户画像，个性化欢迎语
     if (_userProfile != null) {
-      final name = _userProfile!.name;
-      if (name != null && name.isNotEmpty) {
-        welcomeText = '你好$name！我是你的MemoryPal智能助理。\n\n我可以帮你：\n• 查找过去的录音和笔记\n• 回答关于你记忆的问题\n• 提取待办事项\n• 分析你的习惯和偏好\n\n有什么可以帮你的吗？';
+      final name = _userProfile!.name ?? '';
+      final occupation = _userProfile!.occupation;
+      final interests = _userProfile!.interests.take(2).toList();
+
+      final buffer = StringBuffer();
+      buffer.write('你好${name.isNotEmpty ? name : ''}！');
+      buffer.write('我是你的MemoryPal智能助理。\n\n');
+
+      if (occupation != null && interests.isNotEmpty) {
+        buffer.write('作为$occupation，你对${interests.join('、')}充满热情。');
+        buffer.write('我会基于这些了解为你提供个性化帮助。\n\n');
+      } else if (occupation != null) {
+        buffer.write('我了解你的职业背景，可以针对性地为你服务。\n\n');
+      } else if (interests.isNotEmpty) {
+        buffer.write('我知道你对${interests.join('、')}感兴趣，');
+        buffer.write('会据此给出相关建议。\n\n');
       }
+
+      buffer.write('我可以：\n');
+      buffer.write('💬 与你自由对话，基于你的画像提供建议\n');
+      buffer.write('📝 记录和分析你的生活与思考\n');
+      buffer.write('🎯 帮你追踪目标和习惯养成\n');
+      buffer.write('💡 主动发现你关心的话题\n\n');
+      buffer.write('想聊点什么？比如：\n');
+      buffer.write('"根据我的习惯给我一些建议"\n');
+      buffer.write('"分析一下我最近的状态"');
+
+      welcomeText = buffer.toString();
+    } else {
+      welcomeText = '你好！我是你的MemoryPal智能助理。\n\n'
+          '我可以：\n'
+          '💬 与你自由对话，回答各种问题\n'
+          '📝 帮你记录和整理记忆\n'
+          '🎯 提取待办和追踪目标\n'
+          '💡 分析习惯并提供建议\n\n'
+          '建议先在"我的"页面完善你的画像，我能更好地为你服务。\n\n'
+          '有什么想聊的吗？';
     }
 
     _messages.add(ChatMessage(
@@ -114,13 +185,23 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage(String content) async {
     if (content.trim().isEmpty) return;
 
+    final userMessage = ChatMessage(
+      isUser: true,
+      content: content,
+      timestamp: DateTime.now(),
+    );
+
     setState(() {
-      _messages.add(ChatMessage(
-        isUser: true,
-        content: content,
-        timestamp: DateTime.now(),
-      ));
+      _messages.add(userMessage);
       _isProcessing = true;
+    });
+
+    // 保存用户消息到数据库
+    await _databaseService.insertChatMessage({
+      'is_user': 1,
+      'content': content,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'is_search_result': 0,
     });
 
     _textController.clear();
@@ -129,14 +210,24 @@ class _ChatScreenState extends State<ChatScreen> {
     // 分析用户意图并响应
     final response = await _processQuery(content);
 
+    final assistantMessage = ChatMessage(
+      isUser: false,
+      content: response,
+      timestamp: DateTime.now(),
+      isSearchResult: response.contains('📁') || response.contains('📝'),
+    );
+
     setState(() {
-      _messages.add(ChatMessage(
-        isUser: false,
-        content: response,
-        timestamp: DateTime.now(),
-        isSearchResult: response.contains('📁') || response.contains('📝'),
-      ));
+      _messages.add(assistantMessage);
       _isProcessing = false;
+    });
+
+    // 保存AI回复到数据库
+    await _databaseService.insertChatMessage({
+      'is_user': 0,
+      'content': response,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'is_search_result': assistantMessage.isSearchResult ? 1 : 0,
     });
 
     _scrollToBottom();
@@ -145,37 +236,20 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<String> _processQuery(String query) async {
     final lowerQuery = query.toLowerCase();
 
-    // 1. 待办查询
-    if (lowerQuery.contains('待办') || lowerQuery.contains('todo') || lowerQuery.contains('要做')) {
+    // 只保留明确的数据查询指令，其他全部交给AI自由对话
+    // 1. 精确待办查询（用户明确要查待办列表）
+    final todoPatterns = ['列出待办', '显示待办', '查看待办', '我的待办清单'];
+    if (todoPatterns.any((p) => lowerQuery.contains(p))) {
       return await _getTodosResponse();
     }
 
-    // 2. 时间范围查询 (上周、昨天、今天等)
-    if (lowerQuery.contains('上周') || lowerQuery.contains('最近') ||
-        lowerQuery.contains('昨天') || lowerQuery.contains('今天') ||
-        lowerQuery.contains('这几天')) {
-      return await _getRecentContentResponse(query);
-    }
-
-    // 3. 特定人名查询
-    if (lowerQuery.contains('李明') || lowerQuery.contains('王总') ||
-        lowerQuery.contains('和') || lowerQuery.contains('聊')) {
-      return await _searchByPersonOrTopic(query);
-    }
-
-    // 4. 文件/会议查询
-    if (lowerQuery.contains('会议纪要') || lowerQuery.contains('ppt') ||
-        lowerQuery.contains('文件') || lowerQuery.contains('文档')) {
+    // 2. 精确文件查询
+    final filePatterns = ['列出文件', '显示导入的文件', '我导入的文件'];
+    if (filePatterns.any((p) => lowerQuery.contains(p))) {
       return await _searchFiles(query);
     }
 
-    // 5. 项目/工作查询
-    if (lowerQuery.contains('项目') || lowerQuery.contains('工作') ||
-        lowerQuery.contains('忙什么')) {
-      return await _getWorkSummary();
-    }
-
-    // 6. 使用AI回答复杂问题
+    // 其他所有问题都交给AI自由对话（带完整上下文）
     return await _askAI(query);
   }
 
@@ -352,35 +426,46 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<String> _askAI(String question) async {
-    // 构建用户画像上下文
-    final profileContext = _buildProfileContext();
+    // 构建完整的上下文
+    final profileContext = _buildFullProfileContext();
+    final recentHistory = await _buildConversationHistory();
+    final userDataContext = await _buildUserDataContext();
 
     // 先尝试用Kimi API
     if (_kimiService.isAvailable) {
-      debugPrint('Kimi API可用，调用云端AI...');
-
-      // 获取相关上下文
-      final recordings = await _databaseService.getRecordings(limit: 20);
-      final notes = await _databaseService.getNotes(limit: 20);
+      debugPrint('Kimi API可用，调用云端AI进行自由对话...');
 
       final context = <String>[];
 
-      // 添加用户画像信息
+      // 添加系统角色定义
+      context.add('【你的角色】你是MemoryPal，用户的24小时智能助理。你深度了解用户，基于用户画像和记忆数据提供个性化服务。');
+
+      // 添加用户画像（完整版）
       if (profileContext.isNotEmpty) {
-        context.add('【用户画像】$profileContext');
+        context.add(profileContext);
       }
 
-      for (final r in recordings.take(10)) {
-        if (r.transcript != null && r.transcript!.isNotEmpty) {
-          context.add('[录音 ${r.startTime.month}/${r.startTime.day}] ${r.transcript}');
-        }
+      // 添加用户数据摘要
+      if (userDataContext.isNotEmpty) {
+        context.add(userDataContext);
       }
-      for (final n in notes.take(5)) {
-        context.add('[笔记 ${n.createdAt.month}/${n.createdAt.day}] ${n.title}: ${n.content.substring(0, n.content.length > 100 ? 100 : n.content.length)}');
+
+      // 添加近期对话历史（让AI记住上下文）
+      if (recentHistory.isNotEmpty) {
+        context.add('【近期对话】\n$recentHistory');
       }
 
       try {
-        final response = await _kimiService.askQuestion(question, context: context);
+        // 构建对话历史
+        final history = await _buildConversationHistoryForAI();
+
+        // 使用增强的系统提示词
+        final enhancedQuestion = _buildEnhancedPrompt(question);
+        final response = await _kimiService.askQuestion(
+          enhancedQuestion,
+          context: context,
+          conversationHistory: history,
+        );
         if (response != null && response.isNotEmpty) {
           return response;
         }
@@ -388,14 +473,189 @@ class _ChatScreenState extends State<ChatScreen> {
         debugPrint('Kimi API调用失败: $e');
       }
     } else {
-      debugPrint('Kimi API不可用 (API Key: ${_kimiService.apiKey != null ? "已设置" : "未设置"})');
+      debugPrint('Kimi API不可用，使用离线模式 (API Key: ${_kimiService.apiKey != null ? "已设置" : "未设置"})');
     }
 
-    // 离线模式：基于本地数据和用户画像简单回答
+    // 离线模式
     return _offlineAnswer(question, profileContext: profileContext);
   }
 
-  // 构建用户画像上下文描述
+  // 构建增强的提示词
+  String _buildEnhancedPrompt(String question) {
+    // 检测问题类型并添加引导
+    final lower = question.toLowerCase();
+
+    // 分析/建议类问题
+    final analysisKeywords = ['分析', '建议', '为什么', '怎么办', '如何', '怎样', '推荐'];
+    if (analysisKeywords.any((k) => lower.contains(k))) {
+      return '$question\n\n【请基于用户画像和习惯，给出深度分析和个性化建议】';
+    }
+
+    // 总结类问题
+    final summaryKeywords = ['总结', '概括', '回顾', '怎么样', '状态'];
+    if (summaryKeywords.any((k) => lower.contains(k))) {
+      return '$question\n\n【请综合用户画像和近期记录，给出全面总结】';
+    }
+
+    // 开放式对话
+    return '$question\n\n【请自然回应，可以主动关联用户画像中的信息，体现你作为智能助理的个性化】';
+  }
+
+  // 构建文本格式的对话历史（用于上下文提示）
+  Future<String> _buildConversationHistory() async {
+    try {
+      // 获取最近10条对话（不包括当前这条）
+      final messages = await _databaseService.getChatMessages(limit: 10);
+      if (messages.length <= 1) return ''; // 只有当前消息，没有历史
+
+      final buffer = StringBuffer();
+      // 跳过最后一条（当前用户消息）
+      for (int i = 0; i < messages.length - 1; i++) {
+        final m = messages[i];
+        final role = (m['is_user'] as int) == 1 ? '用户' : '助理';
+        final content = m['content'] as String;
+        // 截取前100字符避免太长
+        final shortContent = content.length > 100 ? '${content.substring(0, 100)}...' : content;
+        buffer.writeln('$role: $shortContent');
+      }
+      return buffer.toString();
+    } catch (e) {
+      debugPrint('构建对话历史失败: $e');
+      return '';
+    }
+  }
+
+  // 构建AI API格式的对话历史
+  Future<List<Map<String, String>>> _buildConversationHistoryForAI() async {
+    try {
+      // 获取最近6条对话（不包括当前这条）
+      final messages = await _databaseService.getChatMessages(limit: 7);
+      if (messages.length <= 1) return [];
+
+      final history = <Map<String, String>>[];
+      // 跳过最后一条（当前用户消息），最多取6条历史
+      final startIdx = messages.length > 7 ? messages.length - 7 : 0;
+      for (int i = startIdx; i < messages.length - 1; i++) {
+        final m = messages[i];
+        final role = (m['is_user'] as int) == 1 ? 'user' : 'assistant';
+        final content = m['content'] as String;
+        history.add({'role': role, 'content': content});
+      }
+      return history;
+    } catch (e) {
+      debugPrint('构建AI对话历史失败: $e');
+      return [];
+    }
+  }
+
+  // 构建用户数据上下文
+  Future<String> _buildUserDataContext() async {
+    try {
+      final recordings = await _databaseService.getRecordings(limit: 30);
+      final notes = await _databaseService.getNotes(limit: 20);
+      final todos = await _databaseService.getTodos(includeCompleted: false);
+
+      final buffer = StringBuffer();
+      buffer.writeln('【用户数据概览】');
+
+      // 统计信息
+      final now = DateTime.now();
+      final weekAgo = now.subtract(const Duration(days: 7));
+      final recentRecordings = recordings.where((r) => r.startTime.isAfter(weekAgo)).toList();
+
+      buffer.writeln('近7天记录：${recentRecordings.length}条录音，${notes.where((n) => n.createdAt.isAfter(weekAgo)).length}条笔记');
+      buffer.writeln('待办事项：${todos.length}项未完成');
+
+      // 添加最近的转写内容摘要
+      if (recentRecordings.isNotEmpty) {
+        buffer.writeln('\n【近期录音摘要】');
+        for (final r in recentRecordings.take(5)) {
+          if (r.transcript != null && r.transcript!.isNotEmpty) {
+            final shortText = r.transcript!.length > 80
+                ? '${r.transcript!.substring(0, 80)}...'
+                : r.transcript!;
+            buffer.writeln('• ${r.startTime.month}/${r.startTime.day} ${r.title ?? ""}: $shortText');
+          }
+        }
+      }
+
+      return buffer.toString();
+    } catch (e) {
+      debugPrint('构建用户数据上下文失败: $e');
+      return '';
+    }
+  }
+
+  // 构建完整用户画像上下文
+  String _buildFullProfileContext() {
+    if (_userProfile == null) return '';
+
+    final buffer = StringBuffer();
+    buffer.writeln('【用户画像】');
+
+    final p = _userProfile!;
+
+    // 基础信息
+    final basicInfo = <String>[];
+    if (p.name != null && p.name!.isNotEmpty) basicInfo.add('姓名:${p.name}');
+    if (p.gender != null) basicInfo.add('性别:${p.gender}');
+    if (p.age != null) basicInfo.add('年龄:${p.age}岁');
+    if (p.occupation != null && p.occupation!.isNotEmpty) basicInfo.add('职业:${p.occupation}');
+    if (p.address != null && p.address!.isNotEmpty) basicInfo.add('所在地:${p.address}');
+    if (basicInfo.isNotEmpty) {
+      buffer.writeln('基础信息：${basicInfo.join('，')}');
+    }
+
+    // 兴趣偏好
+    if (p.interests.isNotEmpty) {
+      buffer.writeln('兴趣爱好：${p.interests.join('、')}');
+    }
+
+    // 生活习惯
+    if (p.habits.isNotEmpty) {
+      buffer.writeln('生活习惯：${p.habits.join('、')}');
+    }
+
+    // 性格特点
+    if (p.personality != null && p.personality!.isNotEmpty) {
+      buffer.writeln('性格特点：${p.personality}');
+    }
+
+    // 优势特长
+    if (p.strengths != null && p.strengths!.isNotEmpty) {
+      buffer.writeln('优势特长：${p.strengths}');
+    }
+
+    // 社交关系
+    final socialInfo = <String>[];
+    if (p.familyMembers != null && p.familyMembers!.isNotEmpty) {
+      socialInfo.add('家庭成员：${p.familyMembers}');
+    }
+    if (p.workCircle != null && p.workCircle!.isNotEmpty) {
+      socialInfo.add('工作关系：${p.workCircle}');
+    }
+    if (p.socialCircle != null && p.socialCircle!.isNotEmpty) {
+      socialInfo.add('社交圈：${p.socialCircle}');
+    }
+    if (socialInfo.isNotEmpty) {
+      buffer.writeln('社交关系：${socialInfo.join('，')}');
+    }
+
+    // 目标与困惑
+    if (p.shortTermGoals != null && p.shortTermGoals!.isNotEmpty) {
+      buffer.writeln('短期目标：${p.shortTermGoals}');
+    }
+    if (p.longTermDreams != null && p.longTermDreams!.isNotEmpty) {
+      buffer.writeln('长期愿景：${p.longTermDreams}');
+    }
+    if (p.currentConfusions != null && p.currentConfusions!.isNotEmpty) {
+      buffer.writeln('当前困惑：${p.currentConfusions}');
+    }
+
+    return buffer.toString();
+  }
+
+  // 简化的用户画像（用于离线模式）
   String _buildProfileContext() {
     if (_userProfile == null) return '';
 
@@ -415,70 +675,120 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _offlineAnswer(String question, {String profileContext = ''}) {
     final lower = question.toLowerCase();
-
-    // 使用用户名字个性化回复
     final userName = _userProfile?.name;
     final greeting = userName != null && userName.isNotEmpty ? '你好$userName！' : '你好！';
 
-    if (lower.contains('你好') || lower.contains('是谁')) {
-      return '$greeting我是MemoryPal，你的24小时智能助理。\n\n我可以帮你记录生活、整理思路、提醒待办。我的所有功能都可以离线使用，保护你的隐私。';
+    // 基础问候
+    if (lower.contains('你好') || lower.contains('是谁') || lower.contains('介绍')) {
+      return '$greeting我是MemoryPal，${_userProfile != null ? '为你量身定制的' : ''}24小时智能助理。\n\n我${_userProfile != null ? '了解你的偏好和习惯，可以' : '可以'}帮你记录生活、整理思路、分析习惯、提醒待办。\n\n${_userProfile != null ? "根据你的资料，我知道你是${_userProfile!.occupation ?? '职场人士'}，对${_userProfile!.interests.take(2).join('、')}感兴趣。" : ''}';
     }
 
-    if (lower.contains('隐私') || lower.contains('安全')) {
-      return '🔒 隐私保护说明\n\n• 所有数据存储在本地\n• 录音仅保存在你的设备上\n• AI分析优先使用本地模型\n• 云端分析可选且可关闭\n• 你可以随时导出或删除所有数据';
+    // 隐私相关
+    if (lower.contains('隐私') || lower.contains('安全') || lower.contains('数据')) {
+      return '🔒 隐私保护说明\n\n• 所有数据（录音、笔记、画像）仅存储在本地\n• 云端AI分析可选，仅传输文本摘要\n• 你可以随时导出或删除所有数据\n• 离线模式下所有功能仍然可用\n\n你的数据永远属于你。';
     }
 
-    if (lower.contains('功能') || lower.contains('能做什么') || lower.contains('帮助')) {
-      return '$greeting我是你的MemoryPal智能助理🤖\n\n我可以帮你：\n• 📱 24小时环境录音记录\n• 📝 语音/文字笔记\n• 🔍 自然语言搜索记忆\n• ⏰ 智能待办提醒\n• 💡 基于习惯的建议\n• 📊 每日记忆摘要\n\n${_buildPersonalizedHint()}';
+    // 功能介绍
+    if (lower.contains('功能') || lower.contains('能做什么') || lower.contains('帮助') || lower.contains('用法')) {
+      return '$greeting作为${_userProfile?.occupation != null ? '${_userProfile!.occupation}的' : '你的'}智能助理，我可以：\n\n• 📱 24小时环境录音，记录生活点滴\n• 📝 语音/文字笔记，快速记录想法\n• 💡 基于你的画像和习惯提供建议\n• 🔍 自然语言搜索所有记忆\n• ⏰ 智能识别待办并提醒\n• 📊 定期总结你的生活状态\n\n${_buildPersonalizedHint()}';
     }
 
-    // 如果有用户画像，尝试基于画像回答
+    // 基于用户画像的自由回应
     if (_userProfile != null) {
-      if (lower.contains('兴趣') || lower.contains('喜欢')) {
-        final interests = _userProfile!.interests;
-        if (interests.isNotEmpty) {
-          return '根据你的资料，你对${interests.take(3).join('、')}感兴趣。\n\n如果你想记录更多兴趣相关的内容，可以随时录音或记笔记，我会帮你整理。';
+      final p = _userProfile!;
+
+      // 兴趣相关
+      if (lower.contains('兴趣') || lower.contains('喜欢') || lower.contains('爱好')) {
+        if (p.interests.isNotEmpty) {
+          return '根据你的资料，你对${p.interests.join('、')}感兴趣。\n\n建议：多记录与兴趣相关的内容，我可以帮你深入分析和整理。比如你可以录音记录${p.interests.first}相关的想法，我会自动归类。';
         }
       }
 
-      if (lower.contains('目标') || lower.contains('计划')) {
-        final goals = _userProfile!.shortTermGoals;
-        if (goals != null && goals.isNotEmpty) {
-          return '你当前的短期目标是：$goals\n\n需要我帮你制定计划或提醒相关待办吗？';
+      // 目标相关
+      if (lower.contains('目标') || lower.contains('计划') || lower.contains('规划')) {
+        final goals = [];
+        if (p.shortTermGoals != null) goals.add('短期目标：$p.shortTermGoals');
+        if (p.longTermDreams != null) goals.add('长期愿景：$p.longTermDreams');
+
+        if (goals.isNotEmpty) {
+          return '你当前的目标：\n${goals.join('\n')}\n\n需要我帮你制定行动计划或设置提醒吗？你可以录音告诉我具体想法。';
         }
       }
 
-      if (lower.contains('工作') || lower.contains('职业')) {
-        final occupation = _userProfile!.occupation;
-        if (occupation != null && occupation.isNotEmpty) {
-          return '你从事$occupation工作。\n\n我可以帮你记录工作中的想法、整理会议纪要、提取待办事项。';
+      // 工作/职业相关
+      if (lower.contains('工作') || lower.contains('职业') || lower.contains('事业')) {
+        if (p.occupation != null && p.occupation!.isNotEmpty) {
+          return '作为$p.occupation，你的${p.workCircle != null ? '工作圈包括${p.workCircle}，' : ''}我可以帮你：\n• 记录工作灵感和会议内容\n• 整理项目进展和待办事项\n• 分析工作模式提供效率建议\n\n有具体的工作内容想要讨论吗？';
+        }
+      }
+
+      // 性格/自我认知
+      if (lower.contains('性格') || lower.contains('特点') || lower.contains('优势')) {
+        final traits = [];
+        if (p.personality != null) traits.add('性格：${p.personality}');
+        if (p.strengths != null) traits.add('优势：${p.strengths}');
+
+        if (traits.isNotEmpty) {
+          return '根据我对你的了解：\n${traits.join('\n')}\n\n这些特质让你在${_userProfile?.occupation ?? '工作'}中很有优势。建议持续记录相关经历，我可以帮你更好地发挥长处。';
+        }
+      }
+
+      // 生活/习惯
+      if (lower.contains('习惯') || lower.contains('生活') || lower.contains('日常')) {
+        if (p.habits.isNotEmpty) {
+          return '你的生活包括：${p.habits.join('、')}。\n\n基于这些习惯，我可以：\n• 在合适的时间给出相关提醒\n• 分析习惯模式，发现优化空间\n• 关联相关录音和笔记内容';
+        }
+      }
+
+      // 社交关系
+      if (lower.contains('家庭') || lower.contains('朋友') || lower.contains('关系')) {
+        final relations = [];
+        if (p.familyMembers != null) relations.add('家人：${p.familyMembers}');
+        if (p.socialCircle != null) relations.add('朋友：${p.socialCircle}');
+
+        if (relations.isNotEmpty) {
+          return '${relations.join('，')}都是对你来说重要的人。\n\n建议记录与他们的重要时刻，我可以帮你记住生日、重要事件等，维护好这些关系。';
+        }
+      }
+
+      // 困惑/建议
+      if (lower.contains('困惑') || lower.contains('烦恼') || lower.contains('问题')) {
+        if (p.currentConfusions != null && p.currentConfusions!.isNotEmpty) {
+          return '我了解到你目前的困惑：${p.currentConfusions}\n\n建议通过录音记录思考过程，我可以帮你梳理思路。也可以定期回顾这些困惑的进展。';
         }
       }
     }
 
-    // 根据是否有API Key给出不同提示
+    // 通用自由对话回复
     final hasApiKey = _kimiService.apiKey != null;
     final buffer = StringBuffer();
 
-    buffer.writeln('$greeting我理解你想了解 "$question"。');
+    buffer.writeln('$greeting');
+
+    if (_userProfile != null) {
+      buffer.writeln('作为了解你的助理，我注意到你是${_userProfile!.occupation ?? '职场人士'}。');
+    }
+
+    buffer.writeln('');
+    buffer.writeln('关于"$question"，我想了解更多背景才能给你更好的建议。');
     buffer.writeln('');
 
     if (!hasApiKey) {
-      buffer.writeln('⚠️ **离线模式**');
-      buffer.writeln('当前未配置Kimi API Key，我只能基于本地数据简单回答。');
-      buffer.writeln('');
-      buffer.writeln('如需启用云端AI：');
+      buffer.writeln('⚠️ 当前处于离线模式，我的回答基于本地规则。');
+      buffer.writeln('如需更深度的AI对话：');
       buffer.writeln('1. 前往 设置 → AI设置');
-      buffer.writeln('2. 配置Kimi API Key（从 moonshot.cn 获取）');
+      buffer.writeln('2. 配置Kimi API Key（从 kimi.com 获取）');
       buffer.writeln('');
     }
 
-    buffer.writeln('💡 **我可以帮你：**');
-    buffer.writeln('• 查询待办事项');
-    buffer.writeln('• 搜索最近记录');
-    buffer.writeln('• 查看导入的文件');
-    buffer.writeln('');
-    buffer.writeln(_buildPersonalizedHint());
+    buffer.writeln('💡 试试这样问我：');
+    buffer.writeln('• "根据我的习惯给我一些建议"');
+    buffer.writeln('• "总结一下我最近的状态"');
+    buffer.writeln('• "我的目标完成得怎么样了"');
+
+    if (_userProfile != null) {
+      buffer.writeln('• "基于我的性格，你觉得我适合做什么"');
+    }
 
     return buffer.toString();
   }

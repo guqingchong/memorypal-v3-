@@ -29,7 +29,7 @@ class DatabaseService {
     try {
       final db = await openDatabase(
         path,
-        version: 5,  // 升级到版本5，添加imported_files表
+        version: 6,  // 升级到版本6，添加chat_messages表
         onCreate: _createTables,
         onUpgrade: _upgradeTables,
       );
@@ -49,6 +49,25 @@ class DatabaseService {
 
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
     _developerService.log('数据库升级: $oldVersion -> $newVersion', tag: 'Database');
+
+    if (oldVersion < 6) {
+      // 版本6：添加AI对话历史表
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            is_user INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            is_search_result INTEGER DEFAULT 0,
+            session_id TEXT DEFAULT 'default'
+          )
+        ''');
+        print('数据库升级：创建chat_messages表');
+      } catch (e) {
+        print('创建chat_messages表失败: $e');
+      }
+    }
 
     if (oldVersion < 2) {
       // 添加is_voice_note字段到录音表
@@ -281,6 +300,18 @@ class DatabaseService {
       'monthly_api_budget': 0,
       'recording_retention_days': 30,
     });
+
+    // AI对话历史表
+    await db.execute('''
+      CREATE TABLE chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        is_user INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        is_search_result INTEGER DEFAULT 0,
+        session_id TEXT DEFAULT 'default'
+      )
+    ''');
   }
 
   // 录音相关操作
@@ -686,6 +717,67 @@ class DatabaseService {
       );
     } catch (e) {
       print('删除导入文件记录失败: $e');
+      return 0;
+    }
+  }
+
+  // AI对话历史操作
+  Future<int> insertChatMessage(Map<String, dynamic> message) async {
+    try {
+      final db = await database;
+      return await db.insert('chat_messages', {
+        'is_user': message['is_user'] as int,
+        'content': message['content'] as String,
+        'timestamp': message['timestamp'] as int,
+        'is_search_result': message['is_search_result'] ?? 0,
+        'session_id': message['session_id'] ?? 'default',
+      });
+    } catch (e) {
+      print('插入对话消息失败: $e');
+      return -1;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getChatMessages({String? sessionId, int limit = 100}) async {
+    try {
+      final db = await database;
+      return await db.query(
+        'chat_messages',
+        where: sessionId != null ? 'session_id = ?' : null,
+        whereArgs: sessionId != null ? [sessionId] : null,
+        orderBy: 'timestamp ASC',
+        limit: limit,
+      );
+    } catch (e) {
+      print('获取对话历史失败: $e');
+      return [];
+    }
+  }
+
+  Future<int> deleteChatMessage(int id) async {
+    try {
+      final db = await database;
+      return await db.delete(
+        'chat_messages',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    } catch (e) {
+      print('删除对话消息失败: $e');
+      return 0;
+    }
+  }
+
+  Future<int> clearChatHistory(String sessionId) async {
+    try {
+      final db = await database;
+      return await db.delete(
+        'chat_messages',
+        where: 'session_id = ?',
+        whereArgs: [sessionId],
+      );
+    } catch (e) {
+      print('清空对话历史失败: $e');
       return 0;
     }
   }

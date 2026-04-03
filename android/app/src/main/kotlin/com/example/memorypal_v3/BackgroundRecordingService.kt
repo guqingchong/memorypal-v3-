@@ -49,7 +49,7 @@ class BackgroundRecordingService : Service() {
         val BUFFER_SIZE = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
 
         // VAD参数
-        const val VAD_THRESHOLD_DB = 35.0  // 音量阈值(dB) - 降低阈值更容易触发录音
+        const val VAD_THRESHOLD_DB = 25.0  // 音量阈值(dB) - 降低到25dB使检测更敏感
         const val VAD_SILENCE_TIMEOUT_MS = 3000L  // 静音超过3秒停止保存
         const val MIN_RECORDING_DURATION_MS = 1000L  // 最少录制1秒 - 降低门槛
         const val MAX_SEGMENT_DURATION_MS = 5 * 60 * 1000L  // 最大5分钟分段

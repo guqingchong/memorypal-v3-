@@ -5,7 +5,7 @@ import '../services/recording_service.dart';
 import '../services/database_service.dart';
 import '../utils/permission_manager.dart';
 import '../services/file_import_service.dart';
-import 'note_list_screen.dart';
+import 'recording_list_screen.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'text_note_editor_screen.dart';
@@ -27,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final _screens = const [
     _HomeContent(),
-    NoteListScreen(),
+    RecordingListScreen(),
     ChatScreen(),
     ProfileScreen(),
   ];
@@ -46,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: '首页'),
-          BottomNavigationBarItem(icon: Icon(Icons.edit_note), label: '笔记'),
+          BottomNavigationBarItem(icon: Icon(Icons.library_music), label: '录音'),
           BottomNavigationBarItem(icon: Icon(Icons.psychology), label: '助理'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: '我的'),
         ],
