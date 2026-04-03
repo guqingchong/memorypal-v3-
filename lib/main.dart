@@ -13,6 +13,7 @@ import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
 import 'services/kimi_service.dart';
 import 'services/settings_service.dart';
+import 'services/share_receiver_service.dart';
 
 Future<void> main() async {
   // 在Zone内完成所有初始化，避免Zone mismatch错误
@@ -33,6 +34,20 @@ Future<void> main() async {
         developerService.log('Kimi服务已初始化', tag: 'AppInit');
       } else {
         developerService.log('Kimi API Key未设置', tag: 'AppInit');
+      }
+
+      // 初始化分享接收服务
+      try {
+        await ShareReceiverService().initialize();
+        developerService.log('分享接收服务初始化成功', tag: 'AppInit');
+      } catch (e, stack) {
+        developerService.log(
+          '分享接收服务初始化失败',
+          level: LogLevel.error,
+          tag: 'AppInit',
+          error: e,
+          stackTrace: stack,
+        );
       }
 
       // 捕获全局错误

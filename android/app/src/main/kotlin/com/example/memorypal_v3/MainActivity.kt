@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -23,14 +24,113 @@ class MainActivity : FlutterActivity() {
     private val WECHAT_CHANNEL = "com.memorypal/wechat"
     private val WHISPER_CHANNEL = "com.memorypal/whisper"
     private val CALL_STATE_CHANNEL = "com.memorypal/call_state"
+    private val SHARE_CHANNEL = "com.memorypal/share"
 
     private var callStateReceiver: BroadcastReceiver? = null
     private var segmentSavedReceiver: BroadcastReceiver? = null
     private var recordingMethodChannel: MethodChannel? = null
     private var callStateMethodChannel: MethodChannel? = null
+    private var shareMethodChannel: MethodChannel? = null
+
+    // 保存分享内容，等待Flutter准备好后获取
+    private var pendingShareData: Map<String, Any?>? = null
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 1001
+        private const val TAG = "MainActivity"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // 处理启动时的分享意图
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 处理新的分享意图（当Activity已经存在时）
+        handleIntent(intent)
+    }
+
+    /**
+     * 处理分享意图
+     */
+    private fun handleIntent(intent: Intent) {
+        val action = intent.action
+        val type = intent.type
+
+        Log.d(TAG, "handleIntent: action=$action, type=$type")
+
+        when (action) {
+            Intent.ACTION_SEND -> {
+                if (type != null) {
+                    when {
+                        type.startsWith("text/plain") -> {
+                            // 处理分享的文本
+                            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                            Log.d(TAG, "接收到文本分享: subject=$subject, text=$text")
+                            pendingShareData = mapOf(
+                                "type" to "text",
+                                "text" to text,
+                                "subject" to subject,
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        }
+                        type.startsWith("image/") -> {
+                            // 处理分享的图片
+                            val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                            Log.d(TAG, "接收到图片分享: uri=$imageUri")
+                            pendingShareData = mapOf(
+                                "type" to "image",
+                                "uri" to imageUri?.toString(),
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        }
+                        type == "application/pdf" -> {
+                            // 处理分享的PDF
+                            val pdfUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                            Log.d(TAG, "接收到PDF分享: uri=$pdfUri")
+                            pendingShareData = mapOf(
+                                "type" to "pdf",
+                                "uri" to pdfUri?.toString(),
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        }
+                    }
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                if (type != null && type.startsWith("image/")) {
+                    // 处理多张图片分享
+                    val imageUris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    Log.d(TAG, "接收到多图片分享: count=${imageUris?.size}")
+                    pendingShareData = mapOf(
+                        "type" to "multiple_images",
+                        "uris" to imageUris?.map { it.toString() },
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                }
+            }
+            Intent.ACTION_VIEW -> {
+                // 处理网页链接
+                val data = intent.data
+                if (data != null) {
+                    Log.d(TAG, "接收到链接: $data")
+                    pendingShareData = mapOf(
+                        "type" to "link",
+                        "url" to data.toString(),
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+
+        // 如果Flutter已经准备好，立即发送分享数据
+        if (pendingShareData != null && shareMethodChannel != null) {
+            shareMethodChannel?.invokeMethod("onShareReceived", pendingShareData)
+            pendingShareData = null
+        }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -128,6 +228,37 @@ class MainActivity : FlutterActivity() {
 
         // 后台录音保存监听
         setupSegmentSavedReceiver()
+
+        // 分享处理通道
+        setupShareChannel(flutterEngine)
+    }
+
+    /**
+     * 设置分享处理通道
+     */
+    private fun setupShareChannel(flutterEngine: FlutterEngine) {
+        shareMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
+        shareMethodChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getPendingShareData" -> {
+                    // Flutter请求获取待处理的分享数据
+                    result.success(pendingShareData)
+                    pendingShareData = null
+                }
+                "clearPendingShareData" -> {
+                    // 清除待处理的分享数据
+                    pendingShareData = null
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // 如果有待处理的分享数据，立即发送
+        if (pendingShareData != null) {
+            shareMethodChannel?.invokeMethod("onShareReceived", pendingShareData)
+            pendingShareData = null
+        }
     }
 
     /**
