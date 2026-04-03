@@ -8,6 +8,7 @@ import '../models/recording.dart';
 import 'database_service.dart';
 import 'location_service.dart';
 import 'developer_service.dart';
+import 'whisper_service.dart';
 
 // 录音服务 - 与原生层通信
 class RecordingService {
@@ -193,6 +194,12 @@ class RecordingService {
     try {
       final id = await _databaseService.insertRecording(recording);
       _developerService.log('录音已保存到数据库，ID: $id', tag: 'Recording');
+
+      // 自动触发转写
+      if (id > 0) {
+        _startTranscription(id, recording.filePath);
+      }
+
       _recordingStateController.add(RecordingState.completed(id));
     } catch (e, stack) {
       _developerService.log(
@@ -352,6 +359,11 @@ class RecordingService {
 
       final id = await _databaseService.insertRecording(recording);
       _developerService.log('后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒, 大小: ${fileSize}bytes', tag: 'Recording');
+
+      // 自动触发转写（后台录音也自动转写）
+      if (id > 0) {
+        _startTranscription(id, recording.filePath);
+      }
     } catch (e, stack) {
       _developerService.log(
         '处理后台录音分段失败',
@@ -536,6 +548,49 @@ class RecordingService {
         stackTrace: stack,
       );
       return false;
+    }
+  }
+
+  // 开始自动转写
+  Future<void> _startTranscription(int recordingId, String filePath) async {
+    _developerService.log('开始自动转写录音 ID: $recordingId', tag: 'Whisper');
+
+    try {
+      final whisperService = WhisperService();
+
+      // 先初始化Whisper（如果还没初始化）
+      final initialized = await whisperService.initialize();
+      if (!initialized) {
+        _developerService.log('Whisper初始化失败，跳过转写', level: LogLevel.error, tag: 'Whisper');
+        return;
+      }
+
+      // 执行转写
+      final result = await whisperService.transcribe(filePath);
+
+      if (result != null && result.text.isNotEmpty) {
+        _developerService.log('转写完成，ID: $recordingId, 内容长度: ${result.text.length}', tag: 'Whisper');
+
+        // 更新数据库中的转写内容
+        final recording = await _databaseService.getRecording(recordingId);
+        if (recording != null) {
+          final updatedRecording = recording.copyWith(
+            transcript: result.text,
+          );
+          await _databaseService.updateRecording(updatedRecording);
+          _developerService.log('转写内容已保存到数据库，ID: $recordingId', tag: 'Whisper');
+        }
+      } else {
+        _developerService.log('转写结果为空，ID: $recordingId', level: LogLevel.warning, tag: 'Whisper');
+      }
+    } catch (e, stack) {
+      _developerService.log(
+        '自动转写失败，ID: $recordingId',
+        level: LogLevel.error,
+        tag: 'Whisper',
+        error: e,
+        stackTrace: stack,
+      );
     }
   }
 

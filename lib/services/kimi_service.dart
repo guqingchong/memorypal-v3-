@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'developer_service.dart';
 
 // Kimi服务 - 云端深度分析
 // 支持两种平台：
@@ -14,6 +15,7 @@ class KimiService {
   String? _apiKey;
   bool _isEnabled = true;
   bool _isKimiCode = false; // 是否为KimiCode平台
+  final _developerService = DeveloperService();
 
   // 月度预算控制
   double _monthlyBudget = 0; // 0表示无限制
@@ -37,7 +39,7 @@ class KimiService {
     _dio.options.connectTimeout = const Duration(seconds: 30);
     _dio.options.receiveTimeout = const Duration(seconds: 60);
 
-    print('KimiService初始化: ${_isKimiCode ? "KimiCode平台" : "Moonshot平台"}, baseUrl=${_dio.options.baseUrl}, model=${_getModelName()}');
+    _developerService.log('KimiService初始化: ${_isKimiCode ? "KimiCode平台" : "Moonshot平台"}, baseUrl=${_dio.options.baseUrl}, model=${_getModelName()}', tag: 'Kimi');
   }
 
   // 设置API密钥
@@ -56,7 +58,7 @@ class KimiService {
       'Authorization': 'Bearer $apiKey',
     };
 
-    print('KimiService.setApiKey: 平台=${_isKimiCode ? "KimiCode" : "Moonshot"}, baseUrl=${_dio.options.baseUrl}, API Key已设置');
+    _developerService.log('KimiService.setApiKey: 平台=${_isKimiCode ? "KimiCode" : "Moonshot"}, baseUrl=${_dio.options.baseUrl}, API Key已设置', tag: 'Kimi');
   }
 
   // 启用/禁用云端分析
@@ -109,8 +111,8 @@ class KimiService {
 
       final content = response.data['choices'][0]['message']['content'] as String;
       return _parseDailySummary(content);
-    } catch (e) {
-      print('生成每日摘要失败: $e');
+    } catch (e, stack) {
+      _developerService.log('生成每日摘要失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -141,8 +143,8 @@ class KimiService {
 
       final result = response.data['choices'][0]['message']['content'] as String;
       return _parseProfileInsights(result);
-    } catch (e) {
-      print('分析用户画像失败: $e');
+    } catch (e, stack) {
+      _developerService.log('分析用户画像失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -150,11 +152,11 @@ class KimiService {
   // 智能问答 - 支持深度对话和用户画像学习
   Future<String?> askQuestion(String question, {List<String>? context, List<Map<String, String>>? conversationHistory}) async {
     if (!isAvailable) {
-      print('Kimi API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}');
+      _developerService.log('Kimi API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}', level: LogLevel.warning, tag: 'Kimi');
       return null;
     }
     if (!isWithinBudget) {
-      print('Kimi API预算已超限');
+      _developerService.log('Kimi API预算已超限', level: LogLevel.warning, tag: 'Kimi');
       return null;
     }
 
@@ -214,7 +216,7 @@ class KimiService {
       });
 
       final modelName = _getModelName();
-      print('调用Kimi API: platform=${_isKimiCode ? "KimiCode" : "Moonshot"}, model=$modelName, messages=${messages.length}');
+      _developerService.log('调用Kimi API: platform=${_isKimiCode ? "KimiCode" : "Moonshot"}, model=$modelName, messages=${messages.length}', tag: 'Kimi');
 
       final response = await _dio.post('/chat/completions', data: {
         'model': modelName,
@@ -226,17 +228,17 @@ class KimiService {
       _trackUsage(response);
 
       final content = response.data['choices'][0]['message']['content'] as String?;
-      print('Kimi API响应成功, 内容长度: ${content?.length ?? 0}');
+      _developerService.log('Kimi API响应成功, 内容长度: ${content?.length ?? 0}', tag: 'Kimi');
       return content;
     } on DioException catch (e) {
-      print('Kimi API调用失败: ${e.type} - ${e.message}');
+      _developerService.log('Kimi API调用失败: ${e.type} - ${e.message}', level: LogLevel.error, tag: 'Kimi', error: e);
       if (e.response != null) {
-        print('响应状态: ${e.response?.statusCode}');
-        print('响应数据: ${e.response?.data}');
+        _developerService.log('Kimi API响应状态: ${e.response?.statusCode}', level: LogLevel.error, tag: 'Kimi');
+        _developerService.log('Kimi API响应数据: ${e.response?.data}', level: LogLevel.error, tag: 'Kimi');
       }
       return null;
-    } catch (e) {
-      print('问答失败: $e');
+    } catch (e, stack) {
+      _developerService.log('问答失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -266,8 +268,8 @@ class KimiService {
 
       final result = response.data['choices'][0]['message']['content'] as String;
       return _parseTodos(result);
-    } catch (e) {
-      print('提取待办失败: $e');
+    } catch (e, stack) {
+      _developerService.log('提取待办失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -309,8 +311,8 @@ class KimiService {
         confidence: (i['confidence'] as num).toDouble(),
         evidence: i['evidence'] as String?,
       )).toList();
-    } catch (e) {
-      print('解析画像洞察失败: $e');
+    } catch (e, stack) {
+      _developerService.log('解析画像洞察失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -330,8 +332,8 @@ class KimiService {
         deadline: t['deadline'] != null ? DateTime.tryParse(t['deadline']) : null,
         priority: t['priority'] as String? ?? 'medium',
       )).toList();
-    } catch (e) {
-      print('解析待办失败: $e');
+    } catch (e, stack) {
+      _developerService.log('解析待办失败', level: LogLevel.error, tag: 'Kimi', error: e, stackTrace: stack);
       return null;
     }
   }

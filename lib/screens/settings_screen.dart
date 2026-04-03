@@ -261,50 +261,178 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _configureKimiApi() async {
     final controller = TextEditingController(text: _kimiApiKey);
-    final result = await showDialog<String>(
+    String? testResult;
+    bool isTesting = false;
+
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('配置 Kimi API'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                hintText: '从 moonshot.cn 获取',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('配置 Kimi API'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  hintText: '从 moonshot.cn 或 kimi.com 获取',
+                ),
               ),
+              const SizedBox(height: 8),
+              const Text(
+                'API Key仅存储在本地，用于云端AI分析。不使用云端时可留空。',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+
+              // 验证按钮和结果
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: isTesting || controller.text.isEmpty
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isTesting = true;
+                              testResult = null;
+                            });
+
+                            // 测试API连接
+                            final result = await _testApiConnection(controller.text);
+
+                            setDialogState(() {
+                              isTesting = false;
+                              testResult = result;
+                            });
+                          },
+                    icon: isTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.network_check, size: 18),
+                    label: const Text('测试连接'),
+                  ),
+                  const SizedBox(width: 8),
+                  if (testResult != null)
+                    Expanded(
+                      child: Text(
+                        testResult!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: testResult!.contains('成功')
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              ),
+
+              // 当前状态
+              if (_kimiApiKey != null && _kimiApiKey!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _kimiService.isAvailable
+                        ? Colors.green.shade50
+                        : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: _kimiService.isAvailable
+                          ? Colors.green.shade200
+                          : Colors.orange.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _kimiService.isAvailable
+                            ? Icons.check_circle
+                            : Icons.warning,
+                        size: 16,
+                        color: _kimiService.isAvailable
+                            ? Colors.green
+                            : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _kimiService.isAvailable
+                              ? 'API已配置且可用'
+                              : 'API已配置但不可用',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _kimiService.isAvailable
+                                ? Colors.green.shade700
+                                : Colors.orange.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'API Key仅存储在本地，用于云端AI分析。不使用云端时可留空。',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ElevatedButton(
+              onPressed: () async {
+                final apiKey = controller.text.trim();
+                if (apiKey.isNotEmpty) {
+                  setState(() => _kimiApiKey = apiKey);
+                  _kimiService.setApiKey(apiKey);
+                  await _settingsService.setKimiApiKey(apiKey);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('API Key已保存')),
+                    );
+                  }
+                } else {
+                  // 清空API Key
+                  setState(() => _kimiApiKey = null);
+                  await _settingsService.clearKimiApiKey();
+                }
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('保存'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
+  }
 
-    if (result != null) {
-      setState(() => _kimiApiKey = result);
-      _kimiService.setApiKey(result);
-      // 持久化保存到SharedPreferences
-      await _settingsService.setKimiApiKey(result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('API Key已保存')),
-        );
+  // 测试API连接
+  Future<String> _testApiConnection(String apiKey) async {
+    try {
+      // 创建临时服务测试
+      final testService = KimiService();
+      testService.setApiKey(apiKey);
+
+      // 发送测试请求
+      final response = await testService.askQuestion(
+        'Hello, this is a test message. Please reply with "API test successful" only.',
+        context: [],
+      );
+
+      if (response != null && response.isNotEmpty) {
+        return '连接成功！AI已响应';
+      } else {
+        return '连接失败：无响应';
       }
+    } catch (e) {
+      return '连接失败：$e';
     }
   }
 

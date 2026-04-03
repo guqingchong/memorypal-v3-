@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
 import '../services/recording_service.dart';
+import '../services/developer_service.dart';
 import 'recording_detail_screen.dart';
 
 /// 24小时录音列表页面 - 展示所有录音记录
@@ -15,6 +16,7 @@ class RecordingListScreen extends StatefulWidget {
 class _RecordingListScreenState extends State<RecordingListScreen> {
   final _databaseService = DatabaseService();
   final _recordingService = RecordingService();
+  final _developerService = DeveloperService();
   List<Recording> _recordings = [];
   bool _isLoading = true;
   bool _isBackgroundRecording = false;
@@ -55,16 +57,29 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
 
   Future<void> _loadRecordings() async {
     setState(() => _isLoading = true);
+    _developerService.log('开始加载录音列表', tag: 'RecordingList');
     try {
       final recordings = await _databaseService.getRecordings(limit: 200);
+
+      // 统计各类型录音数量
+      final appRecordings = recordings.where((r) => r.source == 'app' || r.source == null).length;
+      final backgroundRecordings = recordings.where((r) => r.source == 'background').length;
+      final systemCallRecordings = recordings.where((r) => r.source == 'system_call').length;
+      final importedRecordings = recordings.where((r) => r.source == 'imported').length;
+
+      _developerService.log(
+        '录音列表加载完成: 总共${recordings.length}条 (普通:$appRecordings, 后台:$backgroundRecordings, 通话:$systemCallRecordings, 导入:$importedRecordings)',
+        tag: 'RecordingList',
+      );
+
       if (mounted) {
         setState(() {
           _recordings = recordings;
           _isLoading = false;
         });
       }
-    } catch (e) {
-      debugPrint('加载录音列表失败: $e');
+    } catch (e, stack) {
+      _developerService.log('加载录音列表失败', level: LogLevel.error, tag: 'RecordingList', error: e, stackTrace: stack);
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(

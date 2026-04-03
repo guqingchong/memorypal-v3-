@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'developer_service.dart';
 
 // Whisper服务 - 语音转文字
 class WhisperService {
@@ -12,6 +13,7 @@ class WhisperService {
 
   bool _isInitialized = false;
   bool _isModelLoaded = false;
+  final _developerService = DeveloperService();
 
   // 初始化Whisper
   Future<bool> initialize() async {
@@ -21,8 +23,8 @@ class WhisperService {
       final result = await _channel.invokeMethod('initialize');
       _isInitialized = result == true;
       return _isInitialized;
-    } catch (e) {
-      print('Whisper初始化失败: $e');
+    } catch (e, stack) {
+      _developerService.log('Whisper初始化失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
       return false;
     }
   }
@@ -37,8 +39,8 @@ class WhisperService {
       });
       _isModelLoaded = result == true;
       return _isModelLoaded;
-    } catch (e) {
-      print('加载Whisper模型失败: $e');
+    } catch (e, stack) {
+      _developerService.log('加载Whisper模型失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
       return false;
     }
   }
@@ -52,18 +54,18 @@ class WhisperService {
     // 检查音频文件是否存在
     final audioFile = File(audioPath);
     if (!await audioFile.exists()) {
-      print('转写失败: 音频文件不存在: $audioPath');
+      _developerService.log('转写失败: 音频文件不存在: $audioPath', level: LogLevel.error, tag: 'Whisper');
       return null;
     }
 
     // 检查文件大小
     final fileSize = await audioFile.length();
     if (fileSize == 0) {
-      print('转写失败: 音频文件为空');
+      _developerService.log('转写失败: 音频文件为空', level: LogLevel.error, tag: 'Whisper');
       return null;
     }
 
-    print('开始转写: $audioPath, 大小: ${fileSize} bytes, 语言: $language');
+    _developerService.log('开始转写: $audioPath, 大小: ${fileSize} bytes, 语言: $language', tag: 'Whisper');
 
     try {
       final result = await _channel.invokeMethod('transcribe', {
@@ -73,7 +75,7 @@ class WhisperService {
 
       // 适配原生层返回格式：原生返回String，Flutter包装为结果对象
       if (result is String) {
-        print('转写成功: $result');
+        _developerService.log('转写成功，结果长度: ${result.length}', tag: 'Whisper');
         return TranscriptionResult(
           text: result,
           language: language,
@@ -84,7 +86,7 @@ class WhisperService {
       // 如果原生层改为返回Map，也支持
       if (result is Map) {
         final text = result['text'] as String? ?? '';
-        print('转写成功: $text');
+        _developerService.log('转写成功(Map格式)，结果长度: ${text.length}', tag: 'Whisper');
         return TranscriptionResult(
           text: text,
           language: result['language'] as String? ?? language,
@@ -96,10 +98,10 @@ class WhisperService {
 
       return null;
     } on PlatformException catch (e) {
-      print('转写失败(Platform): ${e.code} - ${e.message}');
+      _developerService.log('转写失败(PlatformException): ${e.code} - ${e.message}', level: LogLevel.error, tag: 'Whisper', error: e);
       return null;
-    } catch (e) {
-      print('转写失败: $e');
+    } catch (e, stack) {
+      _developerService.log('转写失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
       return null;
     }
   }
