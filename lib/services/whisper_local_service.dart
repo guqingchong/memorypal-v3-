@@ -34,7 +34,14 @@ class WhisperLocalService {
     'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small.bin', // 国内镜像
     'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin', // 官方源
   ];
-  static const String _modelFileName = 'ggml-small.bin';
+
+  // 支持的模型文件名（按优先级排序）
+  static const List<String> _modelFileNames = [
+    'ggml-small.bin',
+    'ggml-small-q5_1.bin',  // 量化版本，更小更快
+    'ggml-tiny.bin',         // 超轻量版本
+    'ggml-base.bin',         // 基础版本
+  ];
 
   // 进度回调
   final _progressController = StreamController<double>.broadcast();
@@ -159,20 +166,22 @@ class WhisperLocalService {
     try {
       final docDir = await getApplicationDocumentsDirectory();
       final modelDir = Directory('${docDir.path}/models');
-
-      if (!await modelDir.exists()) {
-        await modelDir.create(recursive: true);
+      // 检查多个可能的模型文件名
+      for (final fileName in _modelFileNames) {
+        final modelPath = '${modelDir.path}/$fileName';
+        final modelFile = File(modelPath);
+        if (await modelFile.exists()) {
+          debugPrint('找到模型文件: $fileName');
+          return modelPath;
+        }
       }
 
-      final modelPath = '${modelDir.path}/ggml-small.bin';
-      final modelFile = File(modelPath);
+      // 如果本地不存在任何模型，尝试从assets复制默认模型
+      final defaultPath = '${modelDir.path}/${_modelFileNames.first}';
+      await _copyModelFromAssets(defaultPath);
 
-      // 如果本地不存在，尝试从assets复制
-      if (!await modelFile.exists()) {
-        await _copyModelFromAssets(modelPath);
-      }
+      return await File(defaultPath).exists() ? defaultPath : null;
 
-      return await modelFile.exists() ? modelPath : null;
 
     } catch (e) {
       debugPrint('获取模型路径失败: $e');
@@ -226,7 +235,7 @@ class WhisperLocalService {
       await modelDir.create(recursive: true);
     }
 
-    final modelPath = '${modelDir.path}/$_modelFileName';
+    final modelPath = '${modelDir.path}/${_modelFileNames.first}';
 
     // 尝试多个下载源
     for (int i = 0; i < _modelUrls.length; i++) {

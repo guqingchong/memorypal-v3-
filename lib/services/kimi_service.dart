@@ -43,12 +43,20 @@ class KimiService {
   // 设置API密钥
   void setApiKey(String apiKey) {
     _apiKey = apiKey;
+    _isEnabled = true; // 设置API Key时自动启用
     _isKimiCode = apiKey.startsWith('sk-kimi-');
-    _dio.options.headers['Authorization'] = 'Bearer $apiKey';
-    // 重新设置baseUrl
+
+    // 重新初始化Dio配置
     _dio.options.baseUrl = _isKimiCode
         ? 'https://api.kimi.com/coding/v1'
         : 'https://api.moonshot.cn/v1';
+
+    _dio.options.headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $apiKey',
+    };
+
+    print('KimiService.setApiKey: 平台=${_isKimiCode ? "KimiCode" : "Moonshot"}, baseUrl=${_dio.options.baseUrl}, API Key已设置');
   }
 
   // 启用/禁用云端分析

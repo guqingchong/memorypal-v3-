@@ -272,6 +272,7 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
 
   Widget _buildRecordingCard(Recording recording) {
     final isVoiceNote = recording.isVoiceNote;
+    final isBackgroundRecording = recording.source == 'background';
     final hasTranscript = recording.transcript != null && recording.transcript!.isNotEmpty;
 
     return Dismissible(
@@ -315,12 +316,22 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
                   decoration: BoxDecoration(
                     color: isVoiceNote
                         ? Colors.orange.withOpacity(0.1)
-                        : Colors.blue.withOpacity(0.1),
+                        : isBackgroundRecording
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    isVoiceNote ? Icons.mic : Icons.graphic_eq,
-                    color: isVoiceNote ? Colors.orange : Colors.blue,
+                    isVoiceNote
+                        ? Icons.mic
+                        : isBackgroundRecording
+                            ? Icons.timer
+                            : Icons.graphic_eq,
+                    color: isVoiceNote
+                        ? Colors.orange
+                        : isBackgroundRecording
+                            ? Colors.green
+                            : Colors.blue,
                     size: 24,
                   ),
                 ),

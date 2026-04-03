@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/note.dart';
 import '../services/database_service.dart';
 import 'text_note_editor_screen.dart';
+import 'note_detail_screen.dart';
 
 class NoteListScreen extends StatefulWidget {
   const NoteListScreen({super.key});
@@ -216,7 +217,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ],
           ),
           onTap: () {
-            // TODO: 打开笔记详情
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NoteDetailScreen(note: note),
+              ),
+            ).then((_) => _loadNotes());
           },
         ),
       ),

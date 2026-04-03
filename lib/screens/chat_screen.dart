@@ -431,6 +431,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final recentHistory = await _buildConversationHistory();
     final userDataContext = await _buildUserDataContext();
 
+    // 诊断日志
+    debugPrint('[_askAI] KimiService诊断: isAvailable=${_kimiService.isAvailable}, apiKey=${_kimiService.apiKey != null ? "已设置(长度:${_kimiService.apiKey!.length})" : "未设置"}');
+
     // 先尝试用Kimi API
     if (_kimiService.isAvailable) {
       debugPrint('Kimi API可用，调用云端AI进行自由对话...');
@@ -840,7 +843,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      _voiceInputPath = '${tempDir.path}/voice_input_$timestamp.m4a';
+      _voiceInputPath = '${tempDir.path}/voice_input_$timestamp.wav';
 
       await _recordingService.startRecordingForTranscription(_voiceInputPath!);
     } catch (e) {

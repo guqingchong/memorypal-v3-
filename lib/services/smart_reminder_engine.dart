@@ -28,8 +28,8 @@ class SmartReminderEngine {
     if (_initialized) return;
 
     try {
-      // 每30分钟检查一次上下文
-      _contextCheckTimer = Timer.periodic(const Duration(minutes: 30), (_) {
+      // 每60分钟检查一次上下文（降低频率以节省电量）
+      _contextCheckTimer = Timer.periodic(const Duration(minutes: 60), (_) {
         _analyzeContextAndRemind();
       });
 

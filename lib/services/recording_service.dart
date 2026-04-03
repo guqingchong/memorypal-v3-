@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../models/recording.dart';
 import 'database_service.dart';
 import 'location_service.dart';
@@ -89,7 +91,7 @@ class RecordingService {
 
       final directory = await _getRecordingDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final filePath = '${directory.path}/recording_$timestamp.m4a';
+      final filePath = '${directory.path}/recording_$timestamp.wav';
 
       // 尝试获取位置信息
       _currentLocation = await _locationService.getCurrentLocationInfo();
@@ -293,12 +295,36 @@ class RecordingService {
     _developerService.log('处理后台录音分段: $filePath, 时长: ${durationMs}ms', tag: 'Recording');
 
     try {
-      // 获取当前位置信息
-      final location = await _locationService.getCurrentLocationInfo();
-      _developerService.log('分段录音位置: ${location?.address ?? "未获取"}', tag: 'Recording');
+      // 验证文件是否存在
+      final file = File(filePath);
+      if (!await file.exists()) {
+        _developerService.log('录音文件不存在: $filePath', level: LogLevel.error, tag: 'Recording');
+        return;
+      }
 
-      // 计算实际时长（毫秒转秒）
-      final durationSeconds = (durationMs / 1000).round();
+      // 获取文件大小
+      final fileSize = await file.length();
+      if (fileSize < 1024) { // 小于1KB的录音不保存
+        _developerService.log('录音文件太小(${fileSize}bytes)，跳过保存', level: LogLevel.warning, tag: 'Recording');
+        return;
+      }
+
+      // 获取当前位置信息
+      LocationInfo? location;
+      try {
+        location = await _locationService.getCurrentLocationInfo().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            _developerService.log('获取位置超时', level: LogLevel.warning, tag: 'Recording');
+            return null;
+          },
+        );
+      } catch (e) {
+        _developerService.log('获取位置失败: $e', level: LogLevel.warning, tag: 'Recording');
+      }
+
+      // 计算实际时长（毫秒转秒），至少1秒
+      final durationSeconds = math.max(1, (durationMs / 1000).round());
       // 计算开始时间
       final endTime = DateTime.now();
       final startTime = endTime.subtract(Duration(milliseconds: durationMs));
@@ -306,9 +332,13 @@ class RecordingService {
       // 生成智能标题
       final title = await _generateSmartTitleForSegment(startTime, location);
 
+      // 提取文件名
+      final fileName = path.basename(filePath);
+
       // 将分段录音保存到数据库
       final recording = Recording(
         filePath: filePath,
+        fileName: fileName,
         startTime: startTime,
         endTime: endTime,
         durationSeconds: durationSeconds,
@@ -316,10 +346,12 @@ class RecordingService {
         latitude: location?.latitude,
         longitude: location?.longitude,
         locationName: location?.address,
+        isVoiceNote: false,
+        source: 'background',
       );
 
       final id = await _databaseService.insertRecording(recording);
-      _developerService.log('后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒', tag: 'Recording');
+      _developerService.log('后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒, 大小: ${fileSize}bytes', tag: 'Recording');
     } catch (e, stack) {
       _developerService.log(
         '处理后台录音分段失败',
@@ -463,7 +495,8 @@ class RecordingService {
   void _startBackgroundStatusCheck() {
     _backgroundStatusTimer?.cancel();
     _developerService.log('开始定期检查后台录音状态', tag: 'Recording');
-    _backgroundStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+    // 降低检查频率：从5秒改为30秒，减少电池消耗
+    _backgroundStatusTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       try {
         final isRunning = await _channel.invokeMethod('isBackgroundRecordingRunning');
         if (isRunning != _isBackgroundRecording) {
