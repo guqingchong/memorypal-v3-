@@ -764,7 +764,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              ),
               const SizedBox(height: 8),
               const Text(
                 'API Key仅存储在本地，用于云端AI分析。不使用云端时可留空。',

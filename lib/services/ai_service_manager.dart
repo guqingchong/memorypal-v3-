@@ -1,7 +1,7 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'kimi_service.dart';
 import 'deepseek_service.dart';
 import 'siliconflow_service.dart';
-import 'database_service.dart';
 
 /// AI 服务提供商类型
 enum AIProvider {
@@ -20,15 +20,16 @@ class AIServiceManager {
   final _kimiService = KimiService();
   final _deepseekService = DeepSeekService();
   final _siliconflowService = SiliconFlowService();
-  final _databaseService = DatabaseService();
 
   AIProvider _currentProvider = AIProvider.deepseek; // 默认使用DeepSeek
   bool _autoFallback = true; // 自动降级到备用服务
 
   /// 初始化
   Future<void> initialize() async {
+    final prefs = await SharedPreferences.getInstance();
+
     // 加载用户设置的AI提供商
-    final providerName = await _databaseService.getSetting('ai_provider');
+    final providerName = prefs.getString('ai_provider');
     if (providerName != null) {
       _currentProvider = AIProvider.values.firstWhere(
         (p) => p.name == providerName,
@@ -37,9 +38,9 @@ class AIServiceManager {
     }
 
     // 加载各服务的API Key
-    final kimiApiKey = await _databaseService.getSetting('kimi_api_key');
-    final deepseekApiKey = await _databaseService.getSetting('deepseek_api_key');
-    final siliconflowApiKey = await _databaseService.getSetting('siliconflow_api_key');
+    final kimiApiKey = prefs.getString('kimi_api_key');
+    final deepseekApiKey = prefs.getString('deepseek_api_key');
+    final siliconflowApiKey = prefs.getString('siliconflow_api_key');
 
     if (kimiApiKey != null && kimiApiKey.isNotEmpty) {
       _kimiService.setApiKey(kimiApiKey);
@@ -58,7 +59,8 @@ class AIServiceManager {
   /// 设置当前提供商
   Future<void> setProvider(AIProvider provider) async {
     _currentProvider = provider;
-    await _databaseService.setSetting('ai_provider', provider.name);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ai_provider', provider.name);
   }
 
   /// 获取当前提供商名称
@@ -262,33 +264,35 @@ class AIServiceManager {
 
   /// 设置API Key
   Future<void> setApiKey(AIProvider provider, String apiKey) async {
+    final prefs = await SharedPreferences.getInstance();
     switch (provider) {
       case AIProvider.moonshot:
         _kimiService.setApiKey(apiKey);
-        await _databaseService.setSetting('kimi_api_key', apiKey);
+        await prefs.setString('kimi_api_key', apiKey);
         break;
       case AIProvider.deepseek:
         _deepseekService.setApiKey(apiKey);
-        await _databaseService.setSetting('deepseek_api_key', apiKey);
+        await prefs.setString('deepseek_api_key', apiKey);
         break;
       case AIProvider.siliconflow:
         _siliconflowService.setApiKey(apiKey);
-        await _databaseService.setSetting('siliconflow_api_key', apiKey);
+        await prefs.setString('siliconflow_api_key', apiKey);
         break;
     }
   }
 
   /// 清除API Key
   Future<void> clearApiKey(AIProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
     switch (provider) {
       case AIProvider.moonshot:
-        await _databaseService.setSetting('kimi_api_key', '');
+        await prefs.remove('kimi_api_key');
         break;
       case AIProvider.deepseek:
-        await _databaseService.setSetting('deepseek_api_key', '');
+        await prefs.remove('deepseek_api_key');
         break;
       case AIProvider.siliconflow:
-        await _databaseService.setSetting('siliconflow_api_key', '');
+        await prefs.remove('siliconflow_api_key');
         break;
     }
   }

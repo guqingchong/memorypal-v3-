@@ -15,9 +15,6 @@ import 'services/scheduler_service.dart';
 import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
 import 'services/kimi_service.dart';
-import 'services/deepseek_service.dart';
-import 'services/siliconflow_service.dart';
-import 'services/ai_service_manager.dart';
 import 'services/settings_service.dart';
 import 'services/notification_router.dart';
 
@@ -47,15 +44,15 @@ Future<void> main() async {
         developerService.log('Kimi服务已初始化', tag: 'AppInit');
       }
 
-      // 加载其他AI服务的API Key
-      final databaseService = DatabaseService();
-      final deepseekApiKey = await databaseService.getSetting('deepseek_api_key');
+      // 加载其他AI服务的API Key (从SharedPreferences)
+      final prefs = await SharedPreferences.getInstance();
+      final deepseekApiKey = prefs.getString('deepseek_api_key');
       if (deepseekApiKey != null && deepseekApiKey.isNotEmpty) {
         DeepSeekService().initialize(apiKey: deepseekApiKey);
         developerService.log('DeepSeek服务已初始化', tag: 'AppInit');
       }
 
-      final siliconflowApiKey = await databaseService.getSetting('siliconflow_api_key');
+      final siliconflowApiKey = prefs.getString('siliconflow_api_key');
       if (siliconflowApiKey != null && siliconflowApiKey.isNotEmpty) {
         SiliconFlowService().initialize(apiKey: siliconflowApiKey);
         developerService.log('SiliconFlow服务已初始化', tag: 'AppInit');

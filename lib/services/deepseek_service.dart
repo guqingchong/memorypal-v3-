@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'developer_service.dart';
 import 'agent_service.dart';
+import 'kimi_service.dart' show DailySummary, ProfileInsight, TodoItem;
 
 /// DeepSeek 服务 - 高性价比云端 AI
 /// 官方 API: https://api.deepseek.com
@@ -35,9 +36,9 @@ class DeepSeekService {
       if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
     };
     _dio.options.connectTimeout = const Duration(seconds: 30);
-    _dio.options.receiveTimeout = const Duration(seconds: 120); // DeepSeek 可能需要更长时间
+    _dio.options.receiveTimeout = const Duration(seconds: 120);
 
-    _developerService.log('DeepSeekService初始化: baseUrl=${_dio.options.baseUrl}, model=$_defaultModel', tag: 'DeepSeek');
+    _developerService.log('DeepSeekService initialized', tag: 'DeepSeek');
   }
 
   /// 设置API密钥
@@ -50,7 +51,7 @@ class DeepSeekService {
       'Authorization': 'Bearer $apiKey',
     };
 
-    _developerService.log('DeepSeekService.setApiKey: API Key已设置', tag: 'DeepSeek');
+    _developerService.log('DeepSeekService API Key set', tag: 'DeepSeek');
   }
 
   /// 启用/禁用服务
@@ -70,25 +71,20 @@ class DeepSeekService {
     return _currentMonthUsage < _monthlyBudget;
   }
 
-  /// 获取模型名称
-  String _getModelName({bool useReasoner = false}) {
-    return useReasoner ? _reasonerModel : _defaultModel;
-  }
-
-  /// 智能问答 - 支持深度对话
+  /// 智能问答
   Future<String?> askQuestion(
     String question, {
     List<String>? context,
     List<Map<String, String>>? conversationHistory,
     bool enableTools = true,
-    bool useReasoner = false, // 是否使用推理模型
+    bool useReasoner = false,
   }) async {
     if (!isAvailable) {
-      _developerService.log('DeepSeek API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}', level: LogLevel.warning, tag: 'DeepSeek');
+      _developerService.log('DeepSeek API not available', level: LogLevel.warning, tag: 'DeepSeek');
       return null;
     }
     if (!isWithinBudget) {
-      _developerService.log('DeepSeek API预算已超限', level: LogLevel.warning, tag: 'DeepSeek');
+      _developerService.log('DeepSeek API budget exceeded', level: LogLevel.warning, tag: 'DeepSeek');
       return null;
     }
 
@@ -96,27 +92,7 @@ class DeepSeekService {
       final messages = <Map<String, String>>[];
 
       // 系统提示词
-      var systemPrompt = '''你是MemoryPal，用户的24小时智能助理。你的特点是：
-
-1. **深度个性化**：你全面了解用户的画像（职业、兴趣、习惯、目标、性格等），回答时自然融入这些信息。
-
-2. **主动关联**：不局限于回答问题，主动关联用户的相关经历和偏好，提供有价值的洞察。
-
-3. **学习进化**：每次对话都在加深对用户的理解，回答越来越个性化。
-
-4. **对话风格**：
-   - 用"你"而不是"用户"来称呼
-   - 语气亲切、专业、有见地
-   - 适当使用表情符号增加亲和力
-   - 回答结构清晰，重点突出
-
-5. **回答原则**：
-   - 基于提供的画像和记忆数据回答
-   - 不确定时坦诚告知，不编造
-   - 鼓励用户多记录以加深了解
-   - 主动提出有价值的后续问题
-
-记住：你的目标是成为最懂用户的智能助理。'';
+      var systemPrompt = 'You are MemoryPal, a helpful AI assistant.';
 
       if (enableTools) {
         systemPrompt += '\n\n${AgentService().getToolsDefinition()}';
@@ -131,11 +107,11 @@ class DeepSeekService {
       if (context != null && context.isNotEmpty) {
         messages.add({
           'role': 'user',
-          'content': '【上下文信息】\n${context.join("\n\n")}',
+          'content': 'Context:\n${context.join("\n\n")}',
         });
         messages.add({
           'role': 'assistant',
-          'content': '已了解上下文信息。我会基于这些信息为你提供个性化回答。',
+          'content': 'Context received.',
         });
       }
 
@@ -150,8 +126,8 @@ class DeepSeekService {
         'content': question,
       });
 
-      final modelName = _getModelName(useReasoner: useReasoner);
-      _developerService.log('调用DeepSeek API: model=$modelName, messages=${messages.length}', tag: 'DeepSeek');
+      final modelName = useReasoner ? _reasonerModel : _defaultModel;
+      _developerService.log('Calling DeepSeek API: model=$modelName', tag: 'DeepSeek');
 
       final response = await _dio.post('/chat/completions', data: {
         'model': modelName,
@@ -163,24 +139,13 @@ class DeepSeekService {
       _trackUsage(response);
 
       final content = response.data['choices'][0]['message']['content'] as String?;
-
-      // DeepSeek-R1 有 reasoning_content 字段
-      final reasoningContent = response.data['choices'][0]['message']['reasoning_content'] as String?;
-      if (reasoningContent != null && reasoningContent.isNotEmpty) {
-        _developerService.log('DeepSeek推理过程: ${reasoningContent.substring(0, reasoningContent.length > 100 ? 100 : reasoningContent.length)}...', tag: 'DeepSeek');
-      }
-
-      _developerService.log('DeepSeek API响应成功, 内容长度: ${content?.length ?? 0}', tag: 'DeepSeek');
+      _developerService.log('DeepSeek API response received, length: ${content?.length ?? 0}', tag: 'DeepSeek');
       return content;
     } on DioException catch (e) {
-      _developerService.log('DeepSeek API调用失败: ${e.type} - ${e.message}', level: LogLevel.error, tag: 'DeepSeek', error: e);
-      if (e.response != null) {
-        _developerService.log('DeepSeek API响应状态: ${e.response?.statusCode}', level: LogLevel.error, tag: 'DeepSeek');
-        _developerService.log('DeepSeek API响应数据: ${e.response?.data}', level: LogLevel.error, tag: 'DeepSeek');
-      }
+      _developerService.log('DeepSeek API error: ${e.type}', level: LogLevel.error, tag: 'DeepSeek', error: e);
       return null;
     } catch (e, stack) {
-      _developerService.log('DeepSeek问答失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('DeepSeek error', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -195,15 +160,11 @@ class DeepSeekService {
         'messages': [
           {
             'role': 'system',
-            'content': '''你是一个贴心的个人助理，帮助用户整理一天的记忆和信息。
-请分析以下内容，生成结构化的每日摘要：
-1. 今日完成的事项
-2. 待办提醒
-3. 基于用户习惯的个性化建议'''
+            'content': 'Generate a daily summary.',
           },
           {
             'role': 'user',
-            'content': '请分析今天的记录，生成每日记忆摘要：\n\n$dailyContent'
+            'content': 'Daily content: $dailyContent',
           }
         ],
         'temperature': 0.7,
@@ -217,7 +178,7 @@ class DeepSeekService {
         date: DateTime.now(),
       );
     } catch (e, stack) {
-      _developerService.log('DeepSeek生成每日摘要失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('Daily summary failed', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -232,13 +193,11 @@ class DeepSeekService {
         'messages': [
           {
             'role': 'system',
-            'content': '''分析用户内容，提取可能反映用户特征的信息。
-对每项洞察给出置信度评分(0.0-1.0)。
-只输出JSON格式：{"insights": [{"field": "字段名", "value": "值", "confidence": 0.8, "evidence": "证据"}]}'''
+            'content': 'Extract user profile insights from content. Return JSON.',
           },
           {
             'role': 'user',
-            'content': content
+            'content': content,
           }
         ],
         'temperature': 0.3,
@@ -249,7 +208,7 @@ class DeepSeekService {
       final result = response.data['choices'][0]['message']['content'] as String;
       return _parseProfileInsights(result);
     } catch (e, stack) {
-      _developerService.log('DeepSeek分析用户画像失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('Profile analysis failed', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -264,12 +223,11 @@ class DeepSeekService {
         'messages': [
           {
             'role': 'system',
-            'content': '''从用户内容中提取待办事项。
-输出JSON格式：{"todos": [{"content": "待办内容", "deadline": "YYYY-MM-DD或null", "priority": "high/medium/low"}]}'''
+            'content': 'Extract todos from content. Return JSON.',
           },
           {
             'role': 'user',
-            'content': content
+            'content': content,
           }
         ],
         'temperature': 0.3,
@@ -280,7 +238,7 @@ class DeepSeekService {
       final result = response.data['choices'][0]['message']['content'] as String;
       return _parseTodos(result);
     } catch (e, stack) {
-      _developerService.log('DeepSeek提取待办失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('Todo extraction failed', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -290,8 +248,6 @@ class DeepSeekService {
     final usage = response.data['usage'];
     if (usage != null) {
       final tokens = usage['total_tokens'] as int? ?? 0;
-      // DeepSeek-V3 价格: 输入¥2/百万tokens, 输出¥8/百万tokens
-      // 估算平均费用: ~0.005元/1K tokens
       final cost = tokens * 0.000005;
       _currentMonthUsage += cost;
     }
@@ -314,7 +270,7 @@ class DeepSeekService {
         evidence: i['evidence'] as String?,
       )).toList();
     } catch (e, stack) {
-      _developerService.log('DeepSeek解析画像洞察失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('Parse insights failed', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -335,47 +291,8 @@ class DeepSeekService {
         priority: t['priority'] as String? ?? 'medium',
       )).toList();
     } catch (e, stack) {
-      _developerService.log('DeepSeek解析待办失败', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
+      _developerService.log('Parse todos failed', level: LogLevel.error, tag: 'DeepSeek', error: e, stackTrace: stack);
       return null;
     }
   }
-}
-
-/// 每日摘要
-class DailySummary {
-  final String rawContent;
-  final DateTime date;
-
-  DailySummary({
-    required this.rawContent,
-    required this.date,
-  });
-}
-
-/// 用户画像洞察
-class ProfileInsight {
-  final String field;
-  final String value;
-  final double confidence;
-  final String? evidence;
-
-  ProfileInsight({
-    required this.field,
-    required this.value,
-    required this.confidence,
-    this.evidence,
-  });
-}
-
-/// 待办事项
-class TodoItem {
-  final String content;
-  final DateTime? deadline;
-  final String priority;
-
-  TodoItem({
-    required this.content,
-    this.deadline,
-    required this.priority,
-  });
 }
