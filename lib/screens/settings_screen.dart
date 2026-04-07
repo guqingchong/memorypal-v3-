@@ -3,6 +3,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/database_service.dart';
 import '../services/backup_service.dart';
 import '../services/kimi_service.dart';
+import '../services/deepseek_service.dart';
+import '../services/siliconflow_service.dart';
+import '../services/ai_service_manager.dart';
 import '../services/recording_service.dart';
 import '../services/call_state_service.dart';
 import '../services/system_recording_importer.dart';
@@ -23,6 +26,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _databaseService = DatabaseService();
   final _backupService = BackupService();
   final _kimiService = KimiService();
+  final _deepseekService = DeepSeekService();
+  final _siliconflowService = SiliconFlowService();
+  final _aiManager = AIServiceManager();
   final _recordingService = RecordingService();
   final _callStateService = CallStateService();
   final _settingsService = SettingsService();
@@ -76,6 +82,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final autoRecording = await _settingsService.getAutoRecordingEnabled();
       final kimiApiKey = await _settingsService.getKimiApiKey();
       final recordingQuality = await _settingsService.getRecordingQuality();
+
+      // 初始化AI服务管理器
+      await _aiManager.initialize();
 
       // 如果保存过API Key，初始化Kimi服务
       if (kimiApiKey != null && kimiApiKey.isNotEmpty) {
@@ -259,6 +268,416 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+
+  /// 获取API Key状态文本
+  String _getApiKeyStatus() {
+    final provider = _aiManager.currentProvider;
+    final apiKey = _aiManager.getApiKey(provider);
+    if (apiKey == null || apiKey.isEmpty) {
+      return '未配置';
+    }
+    // 只显示前后几位
+    final masked = '${apiKey.substring(0, 4)}****${apiKey.substring(apiKey.length - 4)}';
+    return '已配置: $masked';
+  }
+
+  /// 选择AI提供商
+  Future<void> _selectAIProvider() async {
+    final result = await showDialog<AIProvider>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('选择AI服务提供商'),
+        children: [
+          _buildProviderOption(
+            AIProvider.deepseek,
+            'DeepSeek',
+            'deepseek-chat (V3.2)',
+            '高性价比，推荐',
+            Colors.blue,
+          ),
+          _buildProviderOption(
+            AIProvider.moonshot,
+            'Moonshot',
+            'moonshot-v1-8k',
+            '长文本处理强',
+            Colors.orange,
+          ),
+          _buildProviderOption(
+            AIProvider.siliconflow,
+            'SiliconFlow',
+            'Qwen2.5-7B (免费)',
+            '免费额度，适合备用',
+            Colors.green,
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await _aiManager.setProvider(result);
+      setState(() {});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已切换到: ${_aiManager.currentProviderName}')),
+        );
+      }
+    }
+  }
+
+  Widget _buildProviderOption(
+    AIProvider provider,
+    String name,
+    String model,
+    String desc,
+    Color color,
+  ) {
+    final isSelected = _aiManager.currentProvider == provider;
+    return SimpleDialogOption(
+      onPressed: () => Navigator.pop(context, provider),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      if (isSelected) ...[
+                        const SizedBox(width: 8),
+                        const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                      ],
+                    ],
+                  ),
+                  Text(
+                    model,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  Text(
+                    desc,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 配置当前提供商的API
+  Future<void> _configureCurrentApi() async {
+    final provider = _aiManager.currentProvider;
+    switch (provider) {
+      case AIProvider.deepseek:
+        await _configureDeepSeekApi();
+        break;
+      case AIProvider.moonshot:
+        await _configureKimiApi();
+        break;
+      case AIProvider.siliconflow:
+        await _configureSiliconFlowApi();
+        break;
+    }
+  }
+
+  /// 配置DeepSeek API
+  Future<void> _configureDeepSeekApi() async {
+    final currentKey = _aiManager.getApiKey(AIProvider.deepseek);
+    final controller = TextEditingController(text: currentKey);
+    String? testResult;
+    bool isTesting = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('配置 DeepSeek API'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  hintText: '从 platform.deepseek.com 获取',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'DeepSeek-V3.2 价格参考：',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '• 输入: ¥2/百万tokens\n'
+                      '• 输出: ¥8/百万tokens\n'
+                      '• 比Kimi便宜约70%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 验证按钮和结果
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: isTesting || controller.text.isEmpty
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isTesting = true;
+                              testResult = null;
+                            });
+
+                            final testService = DeepSeekService();
+                            testService.setApiKey(controller.text);
+                            final result = await testService.askQuestion(
+                              'Hello, this is a test.',
+                              context: [],
+                            );
+
+                            setDialogState(() {
+                              isTesting = false;
+                              testResult = result != null
+                                  ? '连接成功！'
+                                  : '连接失败，请检查API Key';
+                            });
+                          },
+                    icon: isTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.network_check, size: 18),
+                    label: const Text('测试连接'),
+                  ),
+                  const SizedBox(width: 8),
+                  if (testResult != null)
+                    Expanded(
+                      child: Text(
+                        testResult!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: testResult!.contains('成功')
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final apiKey = controller.text.trim();
+                if (apiKey.isNotEmpty) {
+                  await _aiManager.setApiKey(AIProvider.deepseek, apiKey);
+                  setState(() {});
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('DeepSeek API Key已保存')),
+                    );
+                  }
+                } else {
+                  await _aiManager.clearApiKey(AIProvider.deepseek);
+                  setState(() {});
+                }
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 配置SiliconFlow API
+  Future<void> _configureSiliconFlowApi() async {
+    final currentKey = _aiManager.getApiKey(AIProvider.siliconflow);
+    final controller = TextEditingController(text: currentKey);
+    String? testResult;
+    bool isTesting = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('配置 SiliconFlow API'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'API Key（可选）',
+                  hintText: '从 siliconflow.cn 获取（新用户送¥20）',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '免费模型：',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '• Qwen2.5-7B: 完全免费\n'
+                      '• 适合简单问答和备用\n'
+                      '• 新用户送¥20额度',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 验证按钮和结果
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: isTesting || controller.text.isEmpty
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isTesting = true;
+                              testResult = null;
+                            });
+
+                            final testService = SiliconFlowService();
+                            testService.setApiKey(controller.text);
+                            final result = await testService.askQuestion(
+                              'Hello, this is a test.',
+                              context: [],
+                            );
+
+                            setDialogState(() {
+                              isTesting = false;
+                              testResult = result != null
+                                  ? '连接成功！'
+                                  : '连接失败';
+                            });
+                          },
+                    icon: isTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.network_check, size: 18),
+                    label: const Text('测试连接'),
+                  ),
+                  const SizedBox(width: 8),
+                  if (testResult != null)
+                    Expanded(
+                      child: Text(
+                        testResult!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: testResult!.contains('成功')
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final apiKey = controller.text.trim();
+                if (apiKey.isNotEmpty) {
+                  await _aiManager.setApiKey(AIProvider.siliconflow, apiKey);
+                  setState(() {});
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('SiliconFlow API Key已保存')),
+                    );
+                  }
+                } else {
+                  await _aiManager.clearApiKey(AIProvider.siliconflow);
+                  setState(() {});
+                }
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _configureKimiApi() async {
@@ -675,13 +1094,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // AI设置
           _buildSection('AI设置', [
+            // AI提供商选择
             ListTile(
-              title: const Text('AI模型 (Kimi API)'),
-              subtitle: Text(_kimiApiKey != null
-                  ? (_kimiService.isKimiCode ? '已配置 (KimiCode)' : '已配置 (Moonshot)')
-                  : '未配置'),
+              title: const Text('AI服务提供商'),
+              subtitle: Text(_aiManager.currentProviderName),
               trailing: const Icon(Icons.chevron_right),
-              onTap: _configureKimiApi,
+              onTap: _selectAIProvider,
+            ),
+            // 当前提供商的API配置
+            ListTile(
+              title: const Text('配置 API Key'),
+              subtitle: Text(_getApiKeyStatus()),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _configureCurrentApi,
+            ),
+            // 自动降级开关
+            SwitchListTile(
+              title: const Text('自动切换到备用服务'),
+              subtitle: const Text('首选服务失败时自动尝试其他服务'),
+              value: _aiManager.autoFallback,
+              onChanged: (value) {
+                setState(() {
+                  _aiManager.setAutoFallback(value);
+                });
+              },
             ),
             SwitchListTile(
               title: const Text('启用云端分析'),

@@ -7,11 +7,17 @@ import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/recording_service.dart';
 import 'services/database_service.dart';
+import 'services/deepseek_service.dart';
+import 'services/siliconflow_service.dart';
+import 'services/ai_service_manager.dart';
 import 'services/notification_service.dart';
 import 'services/scheduler_service.dart';
 import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
 import 'services/kimi_service.dart';
+import 'services/deepseek_service.dart';
+import 'services/siliconflow_service.dart';
+import 'services/ai_service_manager.dart';
 import 'services/settings_service.dart';
 import 'services/notification_router.dart';
 
@@ -25,15 +31,34 @@ Future<void> main() async {
       final developerService = DeveloperService();
       developerService.initialize();
 
-      // 初始化设置服务并加载Kimi API Key
+      // 初始化设置服务
       final settingsService = SettingsService();
       await settingsService.initialize();
+
+      // 初始化AI服务管理器
+      final aiManager = AIServiceManager();
+      await aiManager.initialize();
+      developerService.log('AI服务管理器已初始化，当前提供商: ${aiManager.currentProviderName}', tag: 'AppInit');
+
+      // 兼容旧版本：加载Kimi API Key
       final kimiApiKey = await settingsService.getKimiApiKey();
       if (kimiApiKey != null && kimiApiKey.isNotEmpty) {
         KimiService().initialize(apiKey: kimiApiKey);
         developerService.log('Kimi服务已初始化', tag: 'AppInit');
-      } else {
-        developerService.log('Kimi API Key未设置', tag: 'AppInit');
+      }
+
+      // 加载其他AI服务的API Key
+      final databaseService = DatabaseService();
+      final deepseekApiKey = await databaseService.getSetting('deepseek_api_key');
+      if (deepseekApiKey != null && deepseekApiKey.isNotEmpty) {
+        DeepSeekService().initialize(apiKey: deepseekApiKey);
+        developerService.log('DeepSeek服务已初始化', tag: 'AppInit');
+      }
+
+      final siliconflowApiKey = await databaseService.getSetting('siliconflow_api_key');
+      if (siliconflowApiKey != null && siliconflowApiKey.isNotEmpty) {
+        SiliconFlowService().initialize(apiKey: siliconflowApiKey);
+        developerService.log('SiliconFlow服务已初始化', tag: 'AppInit');
       }
 
       // 捕获全局错误

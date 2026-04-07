@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/database_service.dart';
 import '../services/kimi_service.dart';
+import '../services/ai_service_manager.dart';
 import '../services/whisper_service.dart';
 import '../services/recording_service.dart';
 import '../services/vector_search_service.dart';
@@ -25,6 +26,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _databaseService = DatabaseService();
   final _kimiService = KimiService();
+  final _aiManager = AIServiceManager();
   final _whisperService = WhisperService();
   final _vectorSearchService = VectorSearchService();
   final _settingsService = SettingsService();
@@ -525,11 +527,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final userDataContext = await _buildUserDataContext();
 
     // 诊断日志
-    debugPrint('[_askAI] KimiService诊断: isAvailable=${_kimiService.isAvailable}, apiKey=${_kimiService.apiKey != null ? "已设置(长度:${_kimiService.apiKey!.length})" : "未设置"}');
+    final providerStatus = _aiManager.getProviderStatus();
+    debugPrint('[_askAI] AI服务诊断: ${_aiManager.currentProviderName}, 可用=${_aiManager.hasAnyAvailableService}');
+    debugPrint('[_askAI] 提供商状态: $providerStatus');
 
-    // 先尝试用Kimi API
-    if (_kimiService.isAvailable) {
-      debugPrint('Kimi API可用，启用智能体模式...');
+    // 使用AI服务管理器自动选择可用服务
+    if (_aiManager.hasAnyAvailableService) {
+      debugPrint('AI服务可用，当前提供商: ${_aiManager.currentProviderName}，启用智能体模式...');
 
       final context = <String>[];
 
@@ -562,7 +566,7 @@ class _ChatScreenState extends State<ChatScreen> {
           debugPrint('智能体执行轮次: $currentRound/$maxToolRounds');
 
           // 发送请求给AI
-          final aiResponse = await _kimiService.askQuestion(
+          final aiResponse = await _aiManager.askQuestion(
             currentRound == 1 ? enhancedQuestion : '请根据工具执行结果继续',
             context: context,
             conversationHistory: history,
@@ -611,7 +615,7 @@ class _ChatScreenState extends State<ChatScreen> {
         debugPrint(stack.toString());
       }
     } else {
-      debugPrint('Kimi API不可用，使用离线模式 (API Key: ${_kimiService.apiKey != null ? "已设置" : "未设置"})');
+      debugPrint('AI服务不可用，使用离线模式 (当前提供商: ${_aiManager.currentProviderName})');
     }
 
     // 离线模式
@@ -913,7 +917,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     // 通用自由对话回复
-    final hasApiKey = _kimiService.apiKey != null;
+    final hasApiKey = _aiManager.hasAnyAvailableService;
     final buffer = StringBuffer();
 
     buffer.writeln('$greeting');
