@@ -5,7 +5,7 @@ import 'profile_evolution_engine.dart';
 import 'proactive_dialogue_engine.dart';
 import 'need_prediction_engine.dart';
 import 'database_service.dart';
-import 'kimi_service.dart';
+import 'ai_service_manager.dart';
 import '../models/user_profile.dart';
 
 /// 第二大脑协调器 - 三层架构的中央控制器
@@ -26,7 +26,7 @@ class SecondBrainOrchestrator {
   final ProactiveDialogueEngine _proactiveEngine = ProactiveDialogueEngine();
   final NeedPredictionEngine _predictionEngine = NeedPredictionEngine();
   final DatabaseService _databaseService = DatabaseService();
-  final KimiService _kimiService = KimiService();
+  final AIServiceManager _aiManager = AIServiceManager();
 
   // 状态
   bool _isInitialized = false;
@@ -75,14 +75,14 @@ class SecondBrainOrchestrator {
       final toolCalls = _agentService.parseToolCalls(input);
       final toolResults = await _agentService.executeToolCalls(toolCalls);
 
-      // 构建工具结果上下文
-      final toolContext = _agentService.buildToolResultsContext(toolResults);
-
-      // 生成AI响应（如果需要）
-      String response = input;
-      if (toolCalls.isNotEmpty && !input.contains('```tool')) {
-        // 用户没有明确要求工具，但系统检测到了工具调用需求
+      // 生成AI响应（使用AI服务生成自然回复）
+      String response;
+      if (toolCalls.isNotEmpty) {
+        // 有工具调用，生成带工具结果的回复
         response = await _generateResponseWithTools(input, toolResults);
+      } else {
+        // 没有工具调用，使用AI服务生成回复
+        response = await generateAIResponse(userInput: input);
       }
 
       // ===== 第二层：记忆进化 =====
@@ -185,7 +185,7 @@ class SecondBrainOrchestrator {
     List<Map<String, String>>? conversationHistory,
     bool enableTools = true,
   }) async {
-    if (!_kimiService.isAvailable) {
+    if (!_aiManager.hasAnyAvailableService) {
       return _generateOfflineResponse(userInput);
     }
 
@@ -198,15 +198,7 @@ class SecondBrainOrchestrator {
       systemPrompt += '\n\n${_agentService.getToolsDefinition()}';
     }
 
-    final messages = <Map<String, String>>[
-      {'role': 'system', 'content': systemPrompt},
-      if (context.isNotEmpty)
-        {'role': 'user', 'content': '【上下文】\n$context'},
-      if (conversationHistory != null) ...conversationHistory,
-      {'role': 'user', 'content': userInput},
-    ];
-
-    final response = await _kimiService.askQuestion(
+    final response = await _aiManager.askQuestion(
       userInput,
       context: [systemPrompt, context],
       conversationHistory: conversationHistory,
