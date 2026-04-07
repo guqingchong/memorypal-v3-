@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'developer_service.dart';
+import 'agent_service.dart';
 
 // Kimi服务 - 云端深度分析
 // 支持两种平台：
@@ -149,8 +150,13 @@ class KimiService {
     }
   }
 
-  // 智能问答 - 支持深度对话和用户画像学习
-  Future<String?> askQuestion(String question, {List<String>? context, List<Map<String, String>>? conversationHistory}) async {
+  // 智能问答 - 支持深度对话、用户画像学习和智能体工具调用
+  Future<String?> askQuestion(
+    String question, {
+    List<String>? context,
+    List<Map<String, String>>? conversationHistory,
+    bool enableTools = true, // 是否启用工具调用
+  }) async {
     if (!isAvailable) {
       _developerService.log('Kimi API不可用: isEnabled=$_isEnabled, apiKey=${_apiKey != null ? "已设置" : "未设置"}', level: LogLevel.warning, tag: 'Kimi');
       return null;
@@ -164,7 +170,7 @@ class KimiService {
       final messages = <Map<String, String>>[];
 
       // 系统提示词 - 定义AI角色和行为准则
-      final systemPrompt = '''你是MemoryPal，用户的24小时智能助理。你的特点是：
+      var systemPrompt = '''你是MemoryPal，用户的24小时智能助理。你的特点是：
 
 1. **深度个性化**：你全面了解用户的画像（职业、兴趣、习惯、目标、性格等），回答时自然融入这些信息。
 
@@ -185,6 +191,11 @@ class KimiService {
    - 主动提出有价值的后续问题
 
 记住：你的目标是成为最懂用户的智能助理。''';
+
+      // 如果启用工具，添加工具定义
+      if (enableTools) {
+        systemPrompt += '\n\n${AgentService().getToolsDefinition()}';
+      }
 
       messages.add({
         'role': 'system',

@@ -249,6 +249,41 @@ class NotificationService {
     await _notifications.cancelAll();
   }
 
+  /// 显示通用通知（公共方法）
+  /// 显示通用通知（公共方法）
+  Future<void> showNotification({
+    required int id,
+    required String title,
+    required String body,
+    String channelId = 'ai_suggestions',
+    String? payload,
+  }) async {
+    await _showNotification(
+      id: id,
+      title: title,
+      body: body,
+      channelId: channelId,
+      payload: payload,
+    );
+  }
+
+  /// 显示带路由的通知
+  Future<void> showRoutedNotification({
+    required int id,
+    required String title,
+    required String body,
+    required String route,
+    String channelId = 'ai_suggestions',
+  }) async {
+    await _showNotification(
+      id: id,
+      title: title,
+      body: body,
+      channelId: channelId,
+      payload: route,
+    );
+  }
+
   /// 获取渠道名称
   String _getChannelName(String channelId) {
     switch (channelId) {

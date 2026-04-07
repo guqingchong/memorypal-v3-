@@ -197,7 +197,7 @@ class RecordingService {
 
       // 自动触发转写
       if (id > 0) {
-        _startTranscription(id, recording.filePath);
+        startTranscription(id, recording.filePath);
       }
 
       _recordingStateController.add(RecordingState.completed(id));
@@ -362,7 +362,7 @@ class RecordingService {
 
       // 自动触发转写（后台录音也自动转写）
       if (id > 0) {
-        _startTranscription(id, recording.filePath);
+        startTranscription(id, recording.filePath);
       }
     } catch (e, stack) {
       _developerService.log(
@@ -551,8 +551,8 @@ class RecordingService {
     }
   }
 
-  // 开始自动转写
-  Future<void> _startTranscription(int recordingId, String filePath) async {
+  // 开始自动转写（公开方法，供其他服务调用）
+  Future<void> startTranscription(int recordingId, String filePath) async {
     _developerService.log('开始自动转写录音 ID: $recordingId', tag: 'Whisper');
 
     try {

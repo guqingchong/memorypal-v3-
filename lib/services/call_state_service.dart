@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'database_service.dart';
 import 'system_recording_importer.dart';
+import 'recording_service.dart';
+import 'developer_service.dart';
 
 /// 通话状态监听服务
 ///
@@ -18,6 +20,8 @@ class CallStateService {
 
   final DatabaseService _databaseService = DatabaseService();
   final SystemRecordingImporter _importer = SystemRecordingImporter();
+  final RecordingService _recordingService = RecordingService();
+  final DeveloperService _developerService = DeveloperService();
 
   // 状态流
   final _callStateController = StreamController<CallState>.broadcast();
@@ -141,7 +145,7 @@ class CallStateService {
     // 延迟执行，等待系统完成录音保存
     await Future.delayed(const Duration(seconds: 5));
 
-    debugPrint('Importing system recordings...');
+    _developerService.log('开始导入系统通话录音', tag: 'CallState');
 
     try {
       final imported = await _importer.importRecentCallRecordings(
@@ -151,20 +155,29 @@ class CallStateService {
       );
 
       if (imported.isNotEmpty) {
-        debugPrint('Imported ${imported.length} system recordings');
+        _developerService.log('导入 ${imported.length} 条系统通话录音', tag: 'CallState');
 
-        // 添加到数据库并触发 AI 分析
+        // 添加到数据库并触发转写
         for (final recording in imported) {
-          await _databaseService.insertRecording(recording);
+          final id = await _databaseService.insertRecording(recording);
 
-          // 触发 AI 分析
-          // await _analyzeRecording(recording);
+          if (id > 0) {
+            _developerService.log('通话录音已保存到数据库，ID: $id，准备转写', tag: 'CallState');
+            // 触发自动转写
+            await _recordingService.startTranscription(id, recording.filePath);
+          }
         }
       } else {
-        debugPrint('No system recordings found to import');
+        _developerService.log('未找到系统通话录音', tag: 'CallState');
       }
-    } catch (e) {
-      debugPrint('Failed to import system recordings: $e');
+    } catch (e, stack) {
+      _developerService.log(
+        '导入系统通话录音失败',
+        level: LogLevel.error,
+        tag: 'CallState',
+        error: e,
+        stackTrace: stack,
+      );
     }
   }
 

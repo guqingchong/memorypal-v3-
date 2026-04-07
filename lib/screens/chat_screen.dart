@@ -8,6 +8,9 @@ import '../services/whisper_service.dart';
 import '../services/recording_service.dart';
 import '../services/vector_search_service.dart';
 import '../services/settings_service.dart';
+import '../services/agent_service.dart';
+import '../services/second_brain_orchestrator.dart';
+import '../services/profile_evolution_engine.dart';
 import '../utils/permission_manager.dart';
 import '../models/user_profile.dart';
 
@@ -25,8 +28,13 @@ class _ChatScreenState extends State<ChatScreen> {
   final _whisperService = WhisperService();
   final _vectorSearchService = VectorSearchService();
   final _settingsService = SettingsService();
+  final _agentService = AgentService();
+  final _secondBrain = SecondBrainOrchestrator();
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
+
+  // 第二大脑消息流订阅
+  StreamSubscription? _orchestratorSubscription;
 
   final List<ChatMessage> _messages = [];
   bool _isProcessing = false;
@@ -69,6 +77,83 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadUserProfile();
     _loadChatHistory();
+    _setupAgentCallbacks();
+    _initializeSecondBrain();
+  }
+
+  // 初始化第二大脑系统
+  Future<void> _initializeSecondBrain() async {
+    await _secondBrain.initialize();
+
+    // 订阅第二大脑的消息流
+    _orchestratorSubscription = _secondBrain.messageStream.listen((message) {
+      switch (message.type) {
+        case MessageType.welcome:
+          _addAssistantMessage(message.content);
+          break;
+        case MessageType.proactive:
+          _addAssistantMessage(
+            message.content,
+            isProactive: true,
+          );
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  // 添加助理消息（支持主动消息标识）
+  void _addAssistantMessage(String content, {bool isProactive = false}) {
+    if (!mounted) return;
+
+    setState(() {
+      _messages.add(ChatMessage(
+        isUser: false,
+        content: content,
+        timestamp: DateTime.now(),
+        isProactive: isProactive,
+      ));
+    });
+
+    _scrollToBottom();
+
+    // 保存到数据库
+    _databaseService.insertChatMessage({
+      'is_user': 0,
+      'content': content,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'is_search_result': 0,
+      'is_proactive': isProactive ? 1 : 0,
+    });
+  }
+
+  // 设置智能体回调
+  void _setupAgentCallbacks() {
+    _agentService.onPlayRecording = (path) {
+      // 使用Navigator跳转到播放页面
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正在打开录音播放...')),
+        );
+      }
+    };
+
+    _agentService.onStartRecording = () {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('开始录音...')),
+        );
+      }
+    };
+
+    _agentService.onShowTodoNotification = (content) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(content), duration: const Duration(seconds: 2)),
+        );
+      }
+    };
   }
 
   // 加载对话历史
@@ -169,6 +254,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.dispose();
     _scrollController.dispose();
     _recordingTimer?.cancel();
+    _orchestratorSubscription?.cancel();
+    _secondBrain.dispose();
     super.dispose();
   }
 
@@ -236,7 +323,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<String> _processQuery(String query) async {
     final lowerQuery = query.toLowerCase();
 
-    // 只保留明确的数据查询指令，其他全部交给AI自由对话
+    // 只保留明确的数据查询指令，其他全部交给第二大脑处理
     // 1. 精确待办查询（用户明确要查待办列表）
     final todoPatterns = ['列出待办', '显示待办', '查看待办', '我的待办清单'];
     if (todoPatterns.any((p) => lowerQuery.contains(p))) {
@@ -249,8 +336,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return await _searchFiles(query);
     }
 
-    // 其他所有问题都交给AI自由对话（带完整上下文）
-    return await _askAI(query);
+    // 其他所有问题交给第二大脑处理（三层架构完整处理）
+    return await _secondBrain.processUserInput(query);
   }
 
   Future<String> _getTodosResponse() async {
@@ -425,10 +512,16 @@ class _ChatScreenState extends State<ChatScreen> {
     return buffer.toString();
   }
 
-  Future<String> _askAI(String question) async {
+  /// AI智能体对话 - 支持工具调用循环
+  ///
+  /// 智能体执行流程：
+  /// 1. 用户输入 → 构建上下文 → 发送给AI
+  /// 2. AI响应 → 解析是否包含工具调用
+  /// 3. 如有工具调用 → 执行工具 → 将结果返回给AI
+  /// 4. AI根据工具结果生成最终回复
+  Future<String> _askAI(String question, {int maxToolRounds = 3}) async {
     // 构建完整的上下文
     final profileContext = _buildFullProfileContext();
-    final recentHistory = await _buildConversationHistory();
     final userDataContext = await _buildUserDataContext();
 
     // 诊断日志
@@ -436,7 +529,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // 先尝试用Kimi API
     if (_kimiService.isAvailable) {
-      debugPrint('Kimi API可用，调用云端AI进行自由对话...');
+      debugPrint('Kimi API可用，启用智能体模式...');
 
       final context = <String>[];
 
@@ -453,27 +546,69 @@ class _ChatScreenState extends State<ChatScreen> {
         context.add(userDataContext);
       }
 
-      // 添加近期对话历史（让AI记住上下文）
-      if (recentHistory.isNotEmpty) {
-        context.add('【近期对话】\n$recentHistory');
-      }
-
       try {
         // 构建对话历史
-        final history = await _buildConversationHistoryForAI();
+        var history = await _buildConversationHistoryForAI();
 
         // 使用增强的系统提示词
         final enhancedQuestion = _buildEnhancedPrompt(question);
-        final response = await _kimiService.askQuestion(
-          enhancedQuestion,
-          context: context,
-          conversationHistory: history,
-        );
-        if (response != null && response.isNotEmpty) {
-          return response;
+
+        // 智能体循环：支持多轮工具调用
+        String? finalResponse;
+        var currentRound = 0;
+
+        while (currentRound < maxToolRounds) {
+          currentRound++;
+          debugPrint('智能体执行轮次: $currentRound/$maxToolRounds');
+
+          // 发送请求给AI
+          final aiResponse = await _kimiService.askQuestion(
+            currentRound == 1 ? enhancedQuestion : '请根据工具执行结果继续',
+            context: context,
+            conversationHistory: history,
+            enableTools: true, // 启用工具调用
+          );
+
+          if (aiResponse == null || aiResponse.isEmpty) {
+            debugPrint('AI响应为空，中断智能体循环');
+            break;
+          }
+
+          // 解析是否包含工具调用
+          final toolCalls = _agentService.parseToolCalls(aiResponse);
+
+          if (toolCalls.isEmpty) {
+            // 没有工具调用，这是最终回复
+            debugPrint('AI响应不含工具调用，返回最终回复');
+            finalResponse = aiResponse;
+            break;
+          }
+
+          // 执行工具调用
+          debugPrint('检测到 ${toolCalls.length} 个工具调用，开始执行...');
+          final toolResults = await _agentService.executeToolCalls(toolCalls);
+
+          // 构建工具结果上下文
+          final toolResultsContext = _agentService.buildToolResultsContext(toolResults);
+
+          // 更新对话历史，包含工具调用和结果
+          history.add({'role': 'assistant', 'content': aiResponse});
+          history.add({'role': 'user', 'content': '工具执行结果：$toolResultsContext'});
+
+          // 如果达到最大轮次，直接返回当前响应
+          if (currentRound >= maxToolRounds) {
+            finalResponse = aiResponse;
+            break;
+          }
         }
-      } catch (e) {
+
+        if (finalResponse != null && finalResponse.isNotEmpty) {
+          // 清理响应中的工具调用标记，保留给用户友好的文本
+          return _cleanToolCallsFromResponse(finalResponse);
+        }
+      } catch (e, stack) {
         debugPrint('Kimi API调用失败: $e');
+        debugPrint(stack.toString());
       }
     } else {
       debugPrint('Kimi API不可用，使用离线模式 (API Key: ${_kimiService.apiKey != null ? "已设置" : "未设置"})');
@@ -481,6 +616,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // 离线模式
     return _offlineAnswer(question, profileContext: profileContext);
+  }
+
+  /// 清理响应中的工具调用标记
+  String _cleanToolCallsFromResponse(String response) {
+    // 移除 ```tool ... ``` 代码块，但保留其他内容
+    final toolBlockPattern = RegExp(r'```tool\s*\n.*?\n```\s*\n?', dotAll: true);
+    return response.replaceAll(toolBlockPattern, '').trim();
   }
 
   // 构建增强的提示词
@@ -1138,11 +1280,13 @@ class ChatMessage {
   final String content;
   final DateTime timestamp;
   final bool isSearchResult;
+  final bool isProactive;  // 是否为主动触发的消息
 
   ChatMessage({
     required this.isUser,
     required this.content,
     required this.timestamp,
     this.isSearchResult = false,
+    this.isProactive = false,
   });
 }

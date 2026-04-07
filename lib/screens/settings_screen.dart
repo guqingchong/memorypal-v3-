@@ -8,6 +8,8 @@ import '../services/call_state_service.dart';
 import '../services/system_recording_importer.dart';
 import '../services/settings_service.dart';
 import '../services/developer_service.dart';
+import '../services/data_export_service.dart';
+import '../widgets/data_export_section.dart';
 import 'developer_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -650,6 +652,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
 
+          // 数据导出（用于优化建议）
+          const DataExportSection(),
+
           // 数据管理
           _buildSection('数据管理', [
             ListTile(
@@ -995,16 +1000,20 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
             ),
           );
         } else {
-          // 导入到数据库
+          // 导入到数据库并触发转写
           for (final recording in imported) {
-            await _databaseService.insertRecording(recording);
+            final id = await _databaseService.insertRecording(recording);
+            if (id > 0) {
+              // 触发自动转写
+              await _recordingService.startTranscription(id, recording.filePath);
+            }
           }
 
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('导入成功'),
-              content: Text('已导入 ${imported.length} 条通话录音，AI 分析将在后台进行。'),
+              content: Text('已导入 ${imported.length} 条通话录音，Whisper 转写将在后台自动进行。'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),

@@ -13,6 +13,7 @@ import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
 import 'services/kimi_service.dart';
 import 'services/settings_service.dart';
+import 'services/notification_router.dart';
 
 Future<void> main() async {
   // 在Zone内完成所有初始化，避免Zone mismatch错误
@@ -74,8 +75,26 @@ Future<void> main() async {
   )!;
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // 设置通知路由的导航键
+    NotificationRouter().setNavigatorKey(_navigatorKey);
+    // 设置通知点击回调
+    NotificationService().onNotificationTap = (payload) {
+      NotificationRouter().handleNotificationTap(payload);
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +104,7 @@ class MyApp extends StatelessWidget {
         Provider(create: (_) => RecordingService()..initialize()),
       ],
       child: MaterialApp(
+        navigatorKey: _navigatorKey,
         title: 'MemoryPal',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
