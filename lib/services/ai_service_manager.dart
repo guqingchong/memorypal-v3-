@@ -3,6 +3,8 @@ import 'kimi_service.dart';
 import 'deepseek_service.dart';
 import 'siliconflow_service.dart';
 
+export 'kimi_service.dart' show DailySummary, ProfileInsight, TodoItem;
+
 /// AI 服务提供商类型
 enum AIProvider {
   moonshot,    // Moonshot (原Kimi)
@@ -324,6 +326,3 @@ class AIServiceManager {
            _siliconflowService.isAvailable;
   }
 }
-
-// 导出数据类
-export 'kimi_service.dart' show DailySummary, ProfileInsight, TodoItem;
