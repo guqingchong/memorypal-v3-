@@ -2,6 +2,7 @@ package com.example.memorypal.whisper;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import androidx.annotation.NonNull;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodCall;
@@ -19,6 +20,7 @@ import java.util.concurrent.Executors;
  */
 public class WhisperPlugin implements MethodCallHandler {
     private static final String CHANNEL_NAME = "com.memorypal/whisper";
+    private static final String TAG = "WhisperPlugin";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
