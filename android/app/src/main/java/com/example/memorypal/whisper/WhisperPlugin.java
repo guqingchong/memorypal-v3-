@@ -131,12 +131,47 @@ public class WhisperPlugin implements MethodCallHandler {
         }
 
         executor.execute(() -> {
+            String wavPath = audioPath;
+            boolean isConverted = false;
+
             try {
+                // 检查是否需要格式转换
+                if (AudioConverter.needsConversion(audioPath)) {
+                    Log.d(TAG, "Audio needs conversion: " + audioPath);
+
+                    // 创建临时WAV文件
+                    File tempWav = new File(audioFile.getParent(),
+                        "temp_" + System.currentTimeMillis() + ".wav");
+                    wavPath = tempWav.getAbsolutePath();
+
+                    // 转换音频格式
+                    boolean converted = AudioConverter.convertToWav(audioPath, wavPath);
+                    if (!converted) {
+                        mainHandler.post(() -> {
+                            result.error("CONVERT_FAILED", "Failed to convert audio to WAV format", null);
+                        });
+                        return;
+                    }
+
+                    isConverted = true;
+                    Log.d(TAG, "Audio converted to: " + wavPath);
+                }
+
+                // 执行转写
                 String transcribedText = nativeTranscribe(
                     whisperContext,
-                    audioPath,
+                    wavPath,
                     language != null ? language : "zh"
                 );
+
+                // 清理临时文件
+                if (isConverted) {
+                    File tempFile = new File(wavPath);
+                    if (tempFile.exists()) {
+                        tempFile.delete();
+                        Log.d(TAG, "Temporary WAV file deleted");
+                    }
+                }
 
                 mainHandler.post(() -> {
                     if (transcribedText != null && !transcribedText.isEmpty()) {
@@ -147,6 +182,14 @@ public class WhisperPlugin implements MethodCallHandler {
                 });
 
             } catch (Exception e) {
+                // 清理临时文件
+                if (isConverted) {
+                    File tempFile = new File(wavPath);
+                    if (tempFile.exists()) {
+                        tempFile.delete();
+                    }
+                }
+
                 mainHandler.post(() -> {
                     result.error("TRANSCRIBE_ERROR", e.getMessage(), null);
                 });

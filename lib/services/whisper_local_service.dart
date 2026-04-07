@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
-import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter/return_code.dart';
 import 'whisper_platform_channel.dart';
 
 /// 本地Whisper语音转写服务
@@ -113,10 +111,12 @@ class WhisperLocalService {
 
   /// 转写音频文件
   ///
-  /// [audioPath] 音频文件路径（支持 wav, mp3, m4a 等）
+  /// [audioPath] 音频文件路径（支持 wav, mp3, m4a, aac, ogg, opus 等）
   /// [language] 语言代码，默认 'zh' (中文)
   ///
   /// 返回转写文本，失败返回 null
+  ///
+  /// 注意：音频格式转换由原生层(Android)处理，支持M4A/AAC/MP3/OGG等格式自动转换为WAV
   Future<String?> transcribe(
     String audioPath, {
     String language = 'zh',
@@ -133,75 +133,22 @@ class WhisperLocalService {
         return null;
       }
 
-      // 检查是否为WAV格式，如果不是则转换
-      String wavPath = audioPath;
-      if (!audioPath.toLowerCase().endsWith('.wav')) {
-        wavPath = await _convertToWav(audioPath);
-        if (wavPath.isEmpty) {
-          debugPrint('音频格式转换失败');
-          return null;
-        }
-      }
-
       // 调用原生代码进行转写
+      // 原生层会自动处理格式转换(M4A/AAC/MP3/OGG -> WAV)
       _progressController.add(0.1); // 开始转写
 
       final result = await WhisperPlatformChannel.instance.transcribe(
-        wavPath,
+        audioPath,
         language: language,
       );
 
       _progressController.add(1.0); // 完成
-
-      // 如果是临时转换的WAV文件，转写完成后删除
-      if (wavPath != audioPath && wavPath.contains('temp_')) {
-        try {
-          await File(wavPath).delete();
-        } catch (e) {
-          debugPrint('删除临时WAV文件失败: $e');
-        }
-      }
 
       return result;
 
     } catch (e) {
       debugPrint('Whisper转写错误: $e');
       return null;
-    }
-  }
-
-  /// 将音频文件转换为WAV格式 (16kHz, 16-bit, mono)
-  ///
-  /// Whisper JNI层只支持标准WAV格式，需要先用FFmpeg转换
-  Future<String> _convertToWav(String audioPath) async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final fileName = 'temp_${DateTime.now().millisecondsSinceEpoch}.wav';
-      final wavPath = '${tempDir.path}/$fileName';
-
-      debugPrint('转换音频格式: $audioPath -> $wavPath');
-
-      // FFmpeg命令: 转换为 16kHz, 16-bit, mono WAV
-      final command =
-          '-i "$audioPath" -ar 16000 -ac 1 -c:a pcm_s16le "$wavPath"';
-
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
-
-      if (ReturnCode.isSuccess(returnCode)) {
-        debugPrint('音频转换成功: $wavPath');
-        return wavPath;
-      } else {
-        final output = await session.getOutput();
-        final logs = await session.getLogs();
-        debugPrint('FFmpeg转换失败: $returnCode');
-        debugPrint('FFmpeg输出: $output');
-        debugPrint('FFmpeg日志: $logs');
-        return '';
-      }
-    } catch (e) {
-      debugPrint('音频转换异常: $e');
-      return '';
     }
   }
 
