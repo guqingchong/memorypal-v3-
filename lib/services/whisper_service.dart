@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'developer_service.dart';
 
 // Whisper服务 - 语音转文字
@@ -16,16 +17,49 @@ class WhisperService {
   final _developerService = DeveloperService();
 
   // 初始化Whisper
-  Future<bool> initialize() async {
+  Future<bool> initialize({String? modelPath}) async {
     if (_isInitialized) return true;
 
     try {
-      final result = await _channel.invokeMethod('initialize');
+      // 如果没有提供模型路径，使用默认路径
+      String path = modelPath ?? await _getDefaultModelPath();
+      if (path.isEmpty) {
+        _developerService.log('Whisper初始化失败: 未找到模型文件', level: LogLevel.error, tag: 'Whisper');
+        return false;
+      }
+
+      final result = await _channel.invokeMethod('initialize', {'modelPath': path});
       _isInitialized = result == true;
+      if (_isInitialized) {
+        _isModelLoaded = true;
+      }
+      _developerService.log('Whisper初始化${_isInitialized ? "成功" : "失败"}: $path', tag: 'Whisper');
       return _isInitialized;
     } catch (e, stack) {
       _developerService.log('Whisper初始化失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
       return false;
+    }
+  }
+
+  // 获取默认模型路径
+  Future<String> _getDefaultModelPath() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final modelDir = Directory('${appDir.path}/models');
+
+      // 检查可能的模型文件名
+      final modelFiles = ['ggml-small.bin', 'ggml-tiny.bin', 'ggml-base.bin'];
+      for (final fileName in modelFiles) {
+        final modelPath = '${modelDir.path}/$fileName';
+        if (await File(modelPath).exists()) {
+          return modelPath;
+        }
+      }
+
+      return '';
+    } catch (e) {
+      _developerService.log('获取模型路径失败: $e', level: LogLevel.error, tag: 'Whisper');
+      return '';
     }
   }
 

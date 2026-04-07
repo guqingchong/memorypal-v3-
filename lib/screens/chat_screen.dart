@@ -710,8 +710,16 @@ class _ChatScreenState extends State<ChatScreen> {
       // 目标相关
       if (lower.contains('目标') || lower.contains('计划') || lower.contains('规划')) {
         final goals = [];
-        if (p.shortTermGoals != null) goals.add('短期目标：$p.shortTermGoals');
-        if (p.longTermDreams != null) goals.add('长期愿景：$p.longTermDreams');
+        // 安全获取字符串值
+        final shortTermGoals = p.shortTermGoals?.toString();
+        final longTermDreams = p.longTermDreams?.toString();
+        // 过滤掉无效值（包含Instance of的对象表示）
+        if (shortTermGoals != null && !shortTermGoals.contains('Instance of')) {
+          goals.add('短期目标：$shortTermGoals');
+        }
+        if (longTermDreams != null && !longTermDreams.contains('Instance of')) {
+          goals.add('长期愿景：$longTermDreams');
+        }
 
         if (goals.isNotEmpty) {
           return '你当前的目标：\n${goals.join('\n')}\n\n需要我帮你制定行动计划或设置提醒吗？你可以录音告诉我具体想法。';

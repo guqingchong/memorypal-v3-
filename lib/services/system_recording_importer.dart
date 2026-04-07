@@ -15,6 +15,12 @@ class SystemRecordingImporter {
   // 涵盖市场上主流品牌的系统录音路径
   static const Map<String, List<String>> RECORDING_PATHS = {
     'huawei': [
+      // 用户反馈的常用路径（优先检查）
+      '/storage/emulated/0/sound/',
+      '/storage/emulated/0/sounds/',
+      '/sdcard/sound/',
+      '/sdcard/sounds/',
+      // 标准路径
       '/storage/emulated/0/Sounds/Recorder/',
       '/storage/emulated/0/Sounds/Recorder/call/',
       '/storage/emulated/0/Sounds/Recorder/callrecord/',
@@ -124,6 +130,24 @@ class SystemRecordingImporter {
       '/storage/emulated/0/Recordings/',
       '/storage/emulated/0/录音/',
       '/storage/emulated/0/ZTE/Recorder/',
+    ],
+    // 通用路径（不区分品牌，扫描所有常见路径）
+    'generic': [
+      '/storage/emulated/0/sound/',
+      '/storage/emulated/0/sounds/',
+      '/storage/emulated/0/Sound/',
+      '/storage/emulated/0/Sounds/',
+      '/sdcard/sound/',
+      '/sdcard/sounds/',
+      '/sdcard/Sound/',
+      '/sdcard/Sounds/',
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/recordings/',
+      '/sdcard/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/通话录音/',
+      '/storage/emulated/0/电话录音/',
+      '/storage/emulated/0/CallRecordings/',
     ],
   };
 
