@@ -13,7 +13,6 @@ import 'services/smart_reminder_engine.dart';
 import 'services/developer_service.dart';
 import 'services/kimi_service.dart';
 import 'services/settings_service.dart';
-import 'services/share_receiver_service.dart';
 
 Future<void> main() async {
   // 在Zone内完成所有初始化，避免Zone mismatch错误
@@ -36,24 +35,10 @@ Future<void> main() async {
         developerService.log('Kimi API Key未设置', tag: 'AppInit');
       }
 
-      // 初始化分享接收服务
-      try {
-        await ShareReceiverService().initialize();
-        developerService.log('分享接收服务初始化成功', tag: 'AppInit');
-      } catch (e, stack) {
-        developerService.log(
-          '分享接收服务初始化失败',
-          level: LogLevel.error,
-          tag: 'AppInit',
-          error: e,
-          stackTrace: stack,
-        );
-      }
-
       // 捕获全局错误
       FlutterError.onError = (FlutterErrorDetails details) {
         developerService.log(
-          'Flutter错误: ${details.exception}',
+          'Flutter错误: \${details.exception}',
           level: LogLevel.error,
           tag: 'Flutter',
           error: details.exception,
@@ -65,7 +50,7 @@ Future<void> main() async {
       // 捕获异步错误
       PlatformDispatcher.instance.onError = (error, stack) {
         developerService.log(
-          '平台错误: $error',
+          '平台错误: \$error',
           level: LogLevel.error,
           tag: 'Platform',
           error: error,
@@ -79,7 +64,7 @@ Future<void> main() async {
     (error, stack) {
       // Zone级别的错误捕获
       DeveloperService().log(
-        '未捕获错误: $error',
+        '未捕获错误: \$error',
         level: LogLevel.error,
         tag: 'Zone',
         error: error,
@@ -203,7 +188,7 @@ class _AppInitializerState extends State<AppInitializer> {
       final prefs = await SharedPreferences.getInstance();
       _isFirstLaunch = prefs.getBool('hasSeenOnboarding') != true;
       _developerService.log(
-        '首选项检查完成，首次启动: $_isFirstLaunch',
+        '首选项检查完成，首次启动: \$_isFirstLaunch',
         tag: 'AppInit',
       );
     } catch (e, stack) {

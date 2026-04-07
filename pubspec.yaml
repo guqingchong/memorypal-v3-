@@ -79,6 +79,9 @@ dependencies:
   # 音频播放
   audioplayers: ^5.2.1
 
+  # 音频格式转换 (用于Whisper转写)
+  ffmpeg_kit_flutter: ^6.0.3
+
   # Cupertino 图标
   cupertino_icons: ^1.0.8
 

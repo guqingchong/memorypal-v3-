@@ -12,13 +12,16 @@ class SystemRecordingImporter {
   final DatabaseService _databaseService = DatabaseService();
 
   // 各品牌手机的录音目录
+  // 涵盖市场上主流品牌的系统录音路径
   static const Map<String, List<String>> RECORDING_PATHS = {
     'huawei': [
       '/storage/emulated/0/Sounds/Recorder/',
       '/storage/emulated/0/Sounds/Recorder/call/',
+      '/storage/emulated/0/Sounds/Recorder/callrecord/',
       '/storage/emulated/0/Recordings/',
       '/storage/emulated/0/Pictures/Sounds/Recorder/',
       '/sdcard/Sounds/Recorder/',
+      '/sdcard/Recordings/',
       // HarmonyOS 额外路径
       '/storage/emulated/0/Music/Sounds/Recorder/',
       '/storage/emulated/0/Audio/Recorder/',
@@ -27,31 +30,120 @@ class SystemRecordingImporter {
       '/storage/emulated/0/CallRecordings/',
       '/storage/emulated/0/录音/',
       '/storage/emulated/0/录音机/',
+      '/storage/emulated/0/通话录音/',
+      '/storage/emulated/0/Call Recording/',
+      '/storage/emulated/0/Record/PhoneRecord/',
     ],
     'xiaomi': [
       '/storage/emulated/0/MIUI/sound_recorder/',
       '/storage/emulated/0/MIUI/sound_recorder/call_rec/',
+      '/storage/emulated/0/MIUI/sound_recorder/app_rec/',
+      '/sdcard/MIUI/sound_recorder/',
+      '/sdcard/MIUI/sound_recorder/call_rec/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/录音机/',
     ],
     'oppo': [
       '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/OPPO/Recorder/',
+      '/storage/emulated/0/ColorOS/Recorder/',
+      '/sdcard/Recordings/',
+      '/storage/emulated/0/DCIM/Recordings/',
     ],
     'vivo': [
       '/storage/emulated/0/录音/',
       '/storage/emulated/0/录音机/',
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/vivo/Recorder/',
+      '/storage/emulated/0/FuntouchOS/Recorder/',
+      '/storage/emulated/0/通话录音/',
     ],
     'samsung': [
       '/storage/emulated/0/Sounds/Recorder/',
       '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/Samsung/Recorder/',
+      '/sdcard/Sounds/Recorder/',
+      '/storage/emulated/0/Call/',
+      '/storage/emulated/0/通话录音/',
+    ],
+    'oneplus': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/一加录音/',
+      '/storage/emulated/0/OxygenOS/Recorder/',
+      '/storage/emulated/0/Sounds/Recorder/',
+    ],
+    'realme': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/Realme/Recorder/',
+      '/storage/emulated/0/ColorOS/Recorder/',
+    ],
+    'meizu': [
+      '/storage/emulated/0/Recorder/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/录音机/',
+      '/storage/emulated/0/Recordings/',
+    ],
+    'honor': [
+      '/storage/emulated/0/Sounds/Recorder/',
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/Honor/Recorder/',
+    ],
+    'lenovo': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/Lenovo/Recorder/',
+    ],
+    'motorola': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/Motorola/Recorder/',
+    ],
+    'asus': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/ASUS/Recorder/',
+    ],
+    'google': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/Sounds/Recorder/',
+      '/storage/emulated/0/录音/',
+    ],
+    'sony': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/Sony/Recorder/',
+    ],
+    'nokia': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/Nokia/Recorder/',
+    ],
+    'zte': [
+      '/storage/emulated/0/Recordings/',
+      '/storage/emulated/0/录音/',
+      '/storage/emulated/0/ZTE/Recorder/',
     ],
   };
 
   // 录音文件扩展名
+  // 支持各品牌手机的各种通话录音格式
   static const List<String> AUDIO_EXTENSIONS = [
-    '.m4a',
-    '.aac',
-    '.amr',
-    '.wav',
-    '.mp3',
+    '.m4a',      // iPhone/华为/小米通用格式
+    '.aac',      // 高级音频编码
+    '.amr',      // 诺基亚/老款安卓常用
+    '.wav',      // 无损格式
+    '.mp3',      // 通用格式
+    '.ogg',      // OPPO/vivo/一加常用
+    '.oga',      // Ogg Audio
+    '.opus',     // 微信/现代通话常用
+    '.flac',     // 无损压缩
+    '.wma',      // Windows Media Audio
+    '.3gp',      // 早期安卓录音格式
+    '.mp4',      // 部分品牌用视频容器存音频
+    '.awb',      // AMR-WB 宽带语音
+    '.slk',      // Silk格式(Skype/微信语音)
   ];
 
   /// 导入最近的通话录音
@@ -232,8 +324,12 @@ class SystemRecordingImporter {
   /// 解析录音文件名获取信息
   ///
   /// 不同品牌的文件名格式不同：
-  /// - 华为: 录音文件_20240331_143022.m4a
-  /// - 小米: 2024-03-31_14-30-22_电话号码.m4a
+  /// - 华为: 录音文件_20240331_143022.m4a / 2024-03-31_14-30-22.m4a
+  /// - 小米: 2024-03-31_14-30-22_13800138000.m4a / 通话录音_号码_时间.m4a
+  /// - OPPO: 2024-03-31 14-30-22.m4a / Recording_20240331_143022.m4a
+  /// - vivo: Recording_20240331_143022.m4a / 2024-03-31_14-30-22.m4a
+  /// - 三星: 20240331_143022.m4a / Voice_2024-03-31_14-30-22.m4a
+  /// - 一加: 2024-03-31_14-30-22.m4a / OnePlus_20240331_143022.m4a
   Map<String, dynamic> _parseRecordingFilename(String path, String brand) {
     final fileName = path.split('/').last;
     final result = <String, dynamic>{
@@ -244,30 +340,118 @@ class SystemRecordingImporter {
     try {
       switch (brand) {
         case 'huawei':
-          // 华为格式: 录音文件_20240331_143022.m4a
-          final match = RegExp(r'(\d{8})_(\d{6})').firstMatch(fileName);
-          if (match != null) {
-            // date: match.group(1), time: match.group(2)
-            // 可以从其他来源获取号码
+        case 'honor':
+          // 华为/荣耀格式:
+          // - 录音文件_20240331_143022.m4a
+          // - 2024-03-31_14-30-22.m4a
+          // - 通话录音_20240331_143022.m4a
+          final huaweiMatch = RegExp(r'(\d{8})_(\d{6})').firstMatch(fileName);
+          if (huaweiMatch != null) {
+            // 尝试从文件名提取号码（有些版本会在文件名中包含）
+            final numberMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
+            if (numberMatch != null) {
+              result['phoneNumber'] = numberMatch.group(1);
+            }
           }
           break;
 
         case 'xiaomi':
-          // 小米格式: 2024-03-31_14-30-22_13800138000.m4a
-          final match = RegExp(r'(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})_(\d+)')
-              .firstMatch(fileName);
-          if (match != null) {
-            result['phoneNumber'] = match.group(3);
+        case 'redmi':
+          // 小米格式:
+          // - 2024-03-31_14-30-22_13800138000.m4a (带号码)
+          // - 通话录音_13800138000_20240331_143022.m4a
+          // - 2024-03-31_14-30-22.m4a (不带号码)
+          final xiaomiMatch = RegExp(
+            r'(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})_(\d+)',
+          ).firstMatch(fileName);
+          if (xiaomiMatch != null) {
+            result['phoneNumber'] = xiaomiMatch.group(3);
+          } else {
+            // 尝试匹配 通话录音_号码_时间 格式
+            final callMatch = RegExp(r'通话录音[_-](\d{11})[_-]').firstMatch(fileName);
+            if (callMatch != null) {
+              result['phoneNumber'] = callMatch.group(1);
+            }
           }
           break;
 
         case 'oppo':
+        case 'realme':
+          // OPPO/Realme格式:
+          // - Recording_20240331_143022.m4a
+          // - 2024-03-31 14-30-22.m4a
+          // - 通话录音_2024-03-31_14-30-22.m4a
+          final oppoMatch = RegExp(
+            r'(\d{4}-\d{2}-\d{2})\s*[_-]?\s*(\d{2}-\d{2}-\d{2})',
+          ).firstMatch(fileName);
+          if (oppoMatch != null) {
+            // 尝试提取号码
+            final numberMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
+            if (numberMatch != null) {
+              result['phoneNumber'] = numberMatch.group(1);
+            }
+          }
+          break;
+
         case 'vivo':
+        case 'iqoo':
+          // vivo/iQOO格式:
+          // - Recording_20240331_143022.m4a
+          // - 2024-03-31_14-30-22.m4a
+          final vivoMatch = RegExp(
+            r'(\d{4}-\d{2}-\d{2})[_-](\d{2}-\d{2}-\d{2})',
+          ).firstMatch(fileName);
+          if (vivoMatch != null) {
+            final numberMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
+            if (numberMatch != null) {
+              result['phoneNumber'] = numberMatch.group(1);
+            }
+          }
+          break;
+
         case 'samsung':
-          // 通用格式尝试解析
-          final phoneMatch = RegExp(r'(\d{11})').firstMatch(fileName);
+          // 三星格式:
+          // - 20240331_143022.m4a
+          // - Voice_2024-03-31_14-30-22.m4a
+          // - Call_2024-03-31_14-30-22.m4a
+          final samsungMatch = RegExp(
+            r'(?:Voice|Call|Recording)?[_-]?(\d{4}-?\d{2}-?\d{2})[_-](\d{2}-?\d{2}-?\d{2})',
+          ).firstMatch(fileName);
+          if (samsungMatch != null) {
+            final numberMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
+            if (numberMatch != null) {
+              result['phoneNumber'] = numberMatch.group(1);
+            }
+          }
+          break;
+
+        case 'oneplus':
+          // 一加格式:
+          // - OnePlus_20240331_143022.m4a
+          // - 2024-03-31_14-30-22.m4a
+          final oneplusMatch = RegExp(
+            r'(?:OnePlus)?[_-]?(\d{4}-?\d{2}-?\d{2})[_-](\d{2}-?\d{2}-?\d{2})',
+          ).firstMatch(fileName);
+          if (oneplusMatch != null) {
+            final numberMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
+            if (numberMatch != null) {
+              result['phoneNumber'] = numberMatch.group(1);
+            }
+          }
+          break;
+
+        default:
+          // 通用格式尝试解析手机号
+          // 匹配11位手机号 (1开头)
+          final phoneMatch = RegExp(r'(1\d{10})').firstMatch(fileName);
           if (phoneMatch != null) {
             result['phoneNumber'] = phoneMatch.group(1);
+          }
+
+          // 尝试匹配固话号码 (区号-号码格式)
+          final landlineMatch = RegExp(r'(0\d{2,3}-?\d{7,8})').firstMatch(fileName);
+          if (landlineMatch != null) {
+            result['phoneNumber'] = landlineMatch.group(1);
           }
           break;
       }

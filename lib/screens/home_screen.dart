@@ -5,9 +5,7 @@ import '../services/recording_service.dart';
 import '../services/database_service.dart';
 import '../utils/permission_manager.dart';
 import '../services/file_import_service.dart';
-import '../services/share_receiver_service.dart';
 import 'recording_list_screen.dart';
-import 'save_memory_screen.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'text_note_editor_screen.dart';
@@ -87,42 +85,9 @@ class _HomeContentState extends State<_HomeContent> {
     _recordingService.recordingState.listen(_onRecordingStateChanged);
     _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
     _checkBackgroundRecordingStatus();
-    _setupShareListener();
   }
 
   // 设置分享接收监听
-  void _setupShareListener() {
-    ShareReceiverService().onShareReceived.listen((shareData) {
-      if (mounted) {
-        // 跳转到保存记忆页面
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SaveMemoryScreen(shareData: shareData),
-          ),
-        );
-      }
-    });
-
-    // 检查是否有待处理的分享（应用从分享启动）
-    if (ShareReceiverService().hasPendingShare) {
-      // 延迟一下，等待页面完全加载
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          ShareReceiverService().onShareReceived.first.then((shareData) {
-            if (mounted) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SaveMemoryScreen(shareData: shareData),
-                ),
-              );
-            }
-          });
-        }
-      });
-    }
-  }
 
   void _onRecordingStateChanged(RecordingState state) {
     if (mounted) {
