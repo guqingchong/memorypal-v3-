@@ -265,6 +265,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = TextEditingController(text: _kimiApiKey);
     String? testResult;
     bool isTesting = false;
+    bool useKimiCode = false; // 默认使用Moonshot
 
     await showDialog(
       context: context,
@@ -279,8 +280,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 controller: controller,
                 decoration: const InputDecoration(
                   labelText: 'API Key',
-                  hintText: '从 moonshot.cn 或 kimi.com 获取',
+                  hintText: '从 moonshot.cn 或 kimi.com/code 获取',
+                  helperText: '建议使用 Moonshot API',
                 ),
+              ),
+              const SizedBox(height: 12),
+              // 平台选择
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          'API平台选择',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: false,
+                          label: Text('Moonshot'),
+                          icon: Icon(Icons.cloud),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text('KimiCode'),
+                          icon: Icon(Icons.code),
+                        ),
+                      ],
+                      selected: {useKimiCode},
+                      onSelectionChanged: (value) {
+                        setDialogState(() {
+                          useKimiCode = value.first;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      useKimiCode
+                          ? 'KimiCode: 仅限编程Agent工具使用，普通调用可能受限'
+                          : 'Moonshot: 推荐，稳定可靠，支持所有功能',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: useKimiCode ? Colors.orange.shade700 : Colors.green.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -302,7 +366,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             });
 
                             // 测试API连接
-                            final result = await _testApiConnection(controller.text);
+                            final result = await _testApiConnection(controller.text, useKimiCode: useKimiCode);
 
                             setDialogState(() {
                               isTesting = false;
@@ -393,11 +457,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 final apiKey = controller.text.trim();
                 if (apiKey.isNotEmpty) {
                   setState(() => _kimiApiKey = apiKey);
-                  _kimiService.setApiKey(apiKey);
+                  // 传递平台选择参数，默认使用Moonshot（useKimiCode=false）
+                  _kimiService.setApiKey(apiKey, useKimiCode: useKimiCode);
                   await _settingsService.setKimiApiKey(apiKey);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('API Key已保存')),
+                      SnackBar(
+                        content: Text(useKimiCode
+                            ? 'API Key已保存（KimiCode平台）'
+                            : 'API Key已保存（Moonshot平台）'),
+                      ),
                     );
                   }
                 } else {
@@ -416,11 +485,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 测试API连接
-  Future<String> _testApiConnection(String apiKey) async {
+  Future<String> _testApiConnection(String apiKey, {bool useKimiCode = false}) async {
     try {
       // 创建临时服务测试
       final testService = KimiService();
-      testService.setApiKey(apiKey);
+      testService.setApiKey(apiKey, useKimiCode: useKimiCode);
 
       // 发送测试请求
       final response = await testService.askQuestion(
@@ -433,7 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         return '连接失败：无响应';
       }
-    } catch (e) {
+    } on Exception catch (e) {
       return '连接失败：$e';
     }
   }
@@ -608,7 +677,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSection('AI设置', [
             ListTile(
               title: const Text('AI模型 (Kimi API)'),
-              subtitle: Text(_kimiApiKey != null ? '已配置' : '未配置'),
+              subtitle: Text(_kimiApiKey != null
+                  ? (_kimiService.isKimiCode ? '已配置 (KimiCode)' : '已配置 (Moonshot)')
+                  : '未配置'),
               trailing: const Icon(Icons.chevron_right),
               onTap: _configureKimiApi,
             ),

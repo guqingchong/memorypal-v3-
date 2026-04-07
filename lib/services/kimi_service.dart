@@ -16,6 +16,7 @@ class KimiService {
   String? _apiKey;
   bool _isEnabled = true;
   bool _isKimiCode = false; // 是否为KimiCode平台
+  bool _forceMoonshot = true; // 默认强制使用Moonshot（KimiCode API有限制）
   final _developerService = DeveloperService();
 
   // 月度预算控制
@@ -23,12 +24,20 @@ class KimiService {
   double _currentMonthUsage = 0;
 
   // 初始化
-  void initialize({String? apiKey, double? monthlyBudget}) {
+  void initialize({String? apiKey, double? monthlyBudget, bool? useKimiCode}) {
     _apiKey = apiKey;
     _monthlyBudget = monthlyBudget ?? 0;
 
-    // 自动检测平台：KimiCode使用 api.kimi.com，Moonshot使用 api.moonshot.cn
-    _isKimiCode = _apiKey?.startsWith('sk-kimi-') ?? false;
+    // 平台选择：默认强制使用Moonshot（KimiCode API有限制）
+    // 只有明确设置 useKimiCode=true 时才使用KimiCode
+    if (useKimiCode == true) {
+      _isKimiCode = true;
+      _forceMoonshot = false;
+    } else {
+      _isKimiCode = false;
+      _forceMoonshot = true;
+    }
+
     _dio.options.baseUrl = _isKimiCode
         ? 'https://api.kimi.com/coding/v1'  // KimiCode平台
         : 'https://api.moonshot.cn/v1';      // Moonshot平台
@@ -44,10 +53,20 @@ class KimiService {
   }
 
   // 设置API密钥
-  void setApiKey(String apiKey) {
+  // 注意：默认强制使用Moonshot平台，因为KimiCode API有限制
+  void setApiKey(String apiKey, {bool? useKimiCode}) {
     _apiKey = apiKey;
     _isEnabled = true; // 设置API Key时自动启用
-    _isKimiCode = apiKey.startsWith('sk-kimi-');
+
+    // 平台选择：默认强制使用Moonshot（KimiCode API有限制）
+    if (useKimiCode == true) {
+      _isKimiCode = true;
+      _forceMoonshot = false;
+    } else {
+      // 默认使用Moonshot，即使key是sk-kimi-格式
+      _isKimiCode = false;
+      _forceMoonshot = true;
+    }
 
     // 重新初始化Dio配置
     _dio.options.baseUrl = _isKimiCode
@@ -60,7 +79,15 @@ class KimiService {
     };
 
     _developerService.log('KimiService.setApiKey: 平台=${_isKimiCode ? "KimiCode" : "Moonshot"}, baseUrl=${_dio.options.baseUrl}, API Key已设置', tag: 'Kimi');
+
+    // 如果key是sk-kimi-格式但强制使用Moonshot，给出警告
+    if (apiKey.startsWith('sk-kimi-') && _forceMoonshot) {
+      _developerService.log('注意: API Key格式为KimiCode，但已自动切换到Moonshot平台（KimiCode API有限制）', level: LogLevel.warning, tag: 'Kimi');
+    }
   }
+
+  // 获取当前平台类型
+  bool get isKimiCode => _isKimiCode;
 
   // 启用/禁用云端分析
   void setEnabled(bool enabled) {
