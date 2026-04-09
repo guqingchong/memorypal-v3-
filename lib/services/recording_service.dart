@@ -299,20 +299,24 @@ class RecordingService {
 
   // 处理分段录音（24小时录音模式）
   Future<void> _processSegment(String filePath, int durationMs) async {
-    _developerService.log('处理后台录音分段: $filePath, 时长: ${durationMs}ms', tag: 'Recording');
+    _developerService.log('=== 开始处理后台录音分段 ===', tag: 'Recording');
+    _developerService.log('文件路径: $filePath', tag: 'Recording');
+    _developerService.log('时长: ${durationMs}ms', tag: 'Recording');
 
     try {
       // 验证文件是否存在
       final file = File(filePath);
       if (!await file.exists()) {
-        _developerService.log('录音文件不存在: $filePath', level: LogLevel.error, tag: 'Recording');
+        _developerService.log('❌ 录音文件不存在: $filePath', level: LogLevel.error, tag: 'Recording');
         return;
       }
+      _developerService.log('✓ 文件存在', tag: 'Recording');
 
       // 获取文件大小
       final fileSize = await file.length();
+      _developerService.log('文件大小: ${fileSize} bytes', tag: 'Recording');
       if (fileSize < 1024) { // 小于1KB的录音不保存
-        _developerService.log('录音文件太小(${fileSize}bytes)，跳过保存', level: LogLevel.warning, tag: 'Recording');
+        _developerService.log('⚠️ 录音文件太小(${fileSize}bytes)，跳过保存', level: LogLevel.warning, tag: 'Recording');
         return;
       }
 
@@ -357,8 +361,9 @@ class RecordingService {
         source: 'background',
       );
 
+      _developerService.log('准备保存到数据库...', tag: 'Recording');
       final id = await _databaseService.insertRecording(recording);
-      _developerService.log('后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒, 大小: ${fileSize}bytes', tag: 'Recording');
+      _developerService.log('✅ 后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒, 大小: ${fileSize}bytes', tag: 'Recording');
 
       // 自动触发转写（后台录音也自动转写）
       if (id > 0) {

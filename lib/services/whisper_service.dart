@@ -20,6 +20,8 @@ class WhisperService {
   Future<bool> initialize({String? modelPath}) async {
     if (_isInitialized) return true;
 
+    _developerService.log('开始初始化Whisper...', tag: 'Whisper');
+
     try {
       // 如果没有提供模型路径，使用默认路径
       String path = modelPath ?? await _getDefaultModelPath();
@@ -28,6 +30,19 @@ class WhisperService {
         return false;
       }
 
+      _developerService.log('使用模型路径: $path', tag: 'Whisper');
+
+      // 检查模型文件是否存在
+      final modelFile = File(path);
+      if (!await modelFile.exists()) {
+        _developerService.log('模型文件不存在: $path', level: LogLevel.error, tag: 'Whisper');
+        return false;
+      }
+
+      final fileSize = await modelFile.length();
+      _developerService.log('模型文件大小: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB', tag: 'Whisper');
+
+      _developerService.log('调用原生层初始化...', tag: 'Whisper');
       final result = await _channel.invokeMethod('initialize', {'modelPath': path});
       _isInitialized = result == true;
       if (_isInitialized) {
@@ -35,8 +50,23 @@ class WhisperService {
       }
       _developerService.log('Whisper初始化${_isInitialized ? "成功" : "失败"}: $path', tag: 'Whisper');
       return _isInitialized;
+    } on PlatformException catch (e, stack) {
+      _developerService.log(
+        'Whisper初始化失败(PlatformException): ${e.code} - ${e.message}',
+        level: LogLevel.error,
+        tag: 'Whisper',
+        error: e,
+        stackTrace: stack,
+      );
+      return false;
     } catch (e, stack) {
-      _developerService.log('Whisper初始化失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
+      _developerService.log(
+        'Whisper初始化失败: $e',
+        level: LogLevel.error,
+        tag: 'Whisper',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
@@ -81,8 +111,15 @@ class WhisperService {
 
   // 转写音频文件
   Future<TranscriptionResult?> transcribe(String audioPath, {String language = 'zh'}) async {
+    _developerService.log('开始转写流程，音频: $audioPath', tag: 'Whisper');
+
     if (!_isInitialized) {
-      await initialize();
+      _developerService.log('Whisper未初始化，先进行初始化...', tag: 'Whisper');
+      final initialized = await initialize();
+      if (!initialized) {
+        _developerService.log('Whisper初始化失败，无法转写', level: LogLevel.error, tag: 'Whisper');
+        return null;
+      }
     }
 
     // 检查音频文件是否存在
@@ -99,9 +136,15 @@ class WhisperService {
       return null;
     }
 
+    // 检查文件是否过小（小于1KB可能不是有效音频）
+    if (fileSize < 1024) {
+      _developerService.log('转写警告: 音频文件过小 (${fileSize}bytes)', level: LogLevel.warning, tag: 'Whisper');
+    }
+
     _developerService.log('开始转写: $audioPath, 大小: ${fileSize} bytes, 语言: $language', tag: 'Whisper');
 
     try {
+      _developerService.log('调用原生层transcribe方法...', tag: 'Whisper');
       final result = await _channel.invokeMethod('transcribe', {
         'audioPath': audioPath,
         'language': language,
@@ -130,12 +173,25 @@ class WhisperService {
         );
       }
 
+      _developerService.log('转写返回未知格式: ${result.runtimeType}', level: LogLevel.warning, tag: 'Whisper');
       return null;
-    } on PlatformException catch (e) {
-      _developerService.log('转写失败(PlatformException): ${e.code} - ${e.message}', level: LogLevel.error, tag: 'Whisper', error: e);
+    } on PlatformException catch (e, stack) {
+      _developerService.log(
+        '转写失败(PlatformException): code=${e.code}, message=${e.message}, details=${e.details}',
+        level: LogLevel.error,
+        tag: 'Whisper',
+        error: e,
+        stackTrace: stack,
+      );
       return null;
     } catch (e, stack) {
-      _developerService.log('转写失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
+      _developerService.log(
+        '转写失败: $e',
+        level: LogLevel.error,
+        tag: 'Whisper',
+        error: e,
+        stackTrace: stack,
+      );
       return null;
     }
   }

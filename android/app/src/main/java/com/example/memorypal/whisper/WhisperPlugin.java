@@ -26,7 +26,26 @@ public class WhisperPlugin implements MethodCallHandler {
 
     // Native方法声明
     static {
-        System.loadLibrary("whisper_jni");
+        try {
+            System.loadLibrary("whisper_jni");
+            Log.i(TAG, "whisper_jni library loaded successfully");
+        } catch (UnsatisfiedLinkError e) {
+            Log.e(TAG, "Failed to load whisper_jni library: " + e.getMessage(), e);
+            // 库加载失败是致命错误，需要在初始化时检测
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error loading library: " + e.getMessage(), e);
+        }
+    }
+
+    // 检查库是否加载成功
+    private static boolean isLibraryLoaded() {
+        try {
+            // 尝试访问一个native方法来验证库是否加载
+            System.loadLibrary("whisper_jni");
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
     }
 
     // JNI方法
@@ -66,9 +85,21 @@ public class WhisperPlugin implements MethodCallHandler {
     }
 
     private void handleInitialize(MethodCall call, Result result) {
+        // 首先检查库是否加载成功
+        if (!isLibraryLoaded()) {
+            Log.e(TAG, "Whisper JNI library not loaded. Cannot initialize.");
+            result.error("LIBRARY_NOT_LOADED",
+                "Whisper native library not loaded. Please ensure the app was built correctly with CMake.",
+                null);
+            return;
+        }
+
         final String modelPath = call.argument("modelPath");
 
+        Log.d(TAG, "Initializing Whisper model, path: " + modelPath);
+
         if (modelPath == null || modelPath.isEmpty()) {
+            Log.e(TAG, "Model path is null or empty");
             result.error("INVALID_ARGUMENT", "Model path is required", null);
             return;
         }
@@ -76,51 +107,83 @@ public class WhisperPlugin implements MethodCallHandler {
         // 检查模型文件是否存在
         File modelFile = new File(modelPath);
         if (!modelFile.exists()) {
+            Log.e(TAG, "Model file not found: " + modelPath);
             result.error("MODEL_NOT_FOUND", "Model file not found: " + modelPath, null);
             return;
+        }
+
+        // 检查文件大小（模型文件应该至少有几MB）
+        long fileSize = modelFile.length();
+        Log.d(TAG, "Model file size: " + fileSize + " bytes");
+        if (fileSize < 1024 * 1024) { // 小于1MB可能无效
+            Log.w(TAG, "Model file seems too small: " + fileSize + " bytes");
         }
 
         executor.execute(() -> {
             try {
                 // 释放之前的上下文
                 if (whisperContext != null) {
+                    Log.d(TAG, "Freeing previous whisper context");
                     nativeFree(whisperContext);
+                    whisperContext = null;
                 }
 
                 // 初始化新的上下文
+                Log.d(TAG, "Calling nativeInit...");
                 long context = nativeInit(modelPath);
 
                 if (context == 0) {
+                    Log.e(TAG, "nativeInit returned 0, initialization failed");
                     mainHandler.post(() -> {
-                        result.error("INIT_FAILED", "Failed to initialize Whisper model", null);
+                        result.error("INIT_FAILED", "Failed to initialize Whisper model - nativeInit returned 0", null);
                     });
                     return;
                 }
 
                 whisperContext = context;
+                Log.i(TAG, "Whisper model initialized successfully, context: " + context);
 
                 mainHandler.post(() -> {
                     result.success(true);
                 });
 
-            } catch (Exception e) {
+            } catch (UnsatisfiedLinkError e) {
+                Log.e(TAG, "Native library not loaded: " + e.getMessage(), e);
                 mainHandler.post(() -> {
-                    result.error("INIT_ERROR", e.getMessage(), null);
+                    result.error("LIBRARY_NOT_LOADED", "Whisper native library not loaded. Please check build configuration.", e.getMessage());
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Initialization error: " + e.getMessage(), e);
+                mainHandler.post(() -> {
+                    result.error("INIT_ERROR", e.getMessage(), Log.getStackTraceString(e));
                 });
             }
         });
     }
 
     private void handleTranscribe(MethodCall call, Result result) {
+        // 首先检查库是否加载成功
+        if (!isLibraryLoaded()) {
+            Log.e(TAG, "Whisper JNI library not loaded. Cannot transcribe.");
+            result.error("LIBRARY_NOT_LOADED",
+                "Whisper native library not loaded. Please ensure the app was built correctly with CMake.",
+                null);
+            return;
+        }
+
         final String audioPath = call.argument("audioPath");
         final String language = call.argument("language");
 
+        Log.d(TAG, "Transcribe called, audioPath: " + audioPath + ", language: " + language);
+
         if (whisperContext == null) {
-            result.error("NOT_INITIALIZED", "Whisper not initialized", null);
+            Log.e(TAG, "Whisper not initialized");
+            result.error("NOT_INITIALIZED", "Whisper not initialized. Please call initialize() first.", null);
             return;
         }
 
         if (audioPath == null || audioPath.isEmpty()) {
+            Log.e(TAG, "Audio path is null or empty");
             result.error("INVALID_ARGUMENT", "Audio path is required", null);
             return;
         }
@@ -128,7 +191,15 @@ public class WhisperPlugin implements MethodCallHandler {
         // 检查音频文件
         File audioFile = new File(audioPath);
         if (!audioFile.exists()) {
+            Log.e(TAG, "Audio file not found: " + audioPath);
             result.error("AUDIO_NOT_FOUND", "Audio file not found: " + audioPath, null);
+            return;
+        }
+
+        long audioFileSize = audioFile.length();
+        Log.d(TAG, "Audio file size: " + audioFileSize + " bytes");
+        if (audioFileSize == 0) {
+            result.error("AUDIO_EMPTY", "Audio file is empty", null);
             return;
         }
 
@@ -147,19 +218,24 @@ public class WhisperPlugin implements MethodCallHandler {
                     wavPath = tempWav.getAbsolutePath();
 
                     // 转换音频格式
+                    Log.d(TAG, "Converting audio to WAV...");
                     boolean converted = AudioConverter.convertToWav(audioPath, wavPath);
                     if (!converted) {
+                        Log.e(TAG, "Audio conversion failed");
                         mainHandler.post(() -> {
-                            result.error("CONVERT_FAILED", "Failed to convert audio to WAV format", null);
+                            result.error("CONVERT_FAILED", "Failed to convert audio to WAV format. The audio format may not be supported.", null);
                         });
                         return;
                     }
 
                     isConverted = true;
                     Log.d(TAG, "Audio converted to: " + wavPath);
+                } else {
+                    Log.d(TAG, "Audio is already in WAV format or no conversion needed");
                 }
 
                 // 执行转写
+                Log.d(TAG, "Starting transcription...");
                 String transcribedText = nativeTranscribe(
                     whisperContext,
                     wavPath,
@@ -177,13 +253,28 @@ public class WhisperPlugin implements MethodCallHandler {
 
                 mainHandler.post(() -> {
                     if (transcribedText != null && !transcribedText.isEmpty()) {
+                        Log.i(TAG, "Transcription successful, text length: " + transcribedText.length());
                         result.success(transcribedText);
                     } else {
-                        result.error("TRANSCRIBE_FAILED", "Transcription returned empty result", null);
+                        Log.w(TAG, "Transcription returned empty result");
+                        result.error("TRANSCRIBE_EMPTY", "Transcription returned empty result. The audio may not contain recognizable speech.", null);
                     }
                 });
 
+            } catch (UnsatisfiedLinkError e) {
+                Log.e(TAG, "Native method not found: " + e.getMessage(), e);
+                // 清理临时文件
+                if (isConverted) {
+                    File tempFile = new File(wavPath);
+                    if (tempFile.exists()) {
+                        tempFile.delete();
+                    }
+                }
+                mainHandler.post(() -> {
+                    result.error("NATIVE_METHOD_NOT_FOUND", "Native transcribe method not found. Library may not be loaded correctly.", e.getMessage());
+                });
             } catch (Exception e) {
+                Log.e(TAG, "Transcription error: " + e.getMessage(), e);
                 // 清理临时文件
                 if (isConverted) {
                     File tempFile = new File(wavPath);
@@ -193,7 +284,7 @@ public class WhisperPlugin implements MethodCallHandler {
                 }
 
                 mainHandler.post(() -> {
-                    result.error("TRANSCRIBE_ERROR", e.getMessage(), null);
+                    result.error("TRANSCRIBE_ERROR", e.getMessage(), Log.getStackTraceString(e));
                 });
             }
         });
