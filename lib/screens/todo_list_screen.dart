@@ -158,23 +158,23 @@ class _TodoListScreenState extends State<TodoListScreen> {
             child: const Text('取消'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              if (controller.text.isNotEmpty) {
-                await _databaseService.insertTodo({
-                  'content': controller.text,
-                  'is_completed': 0,
-                  'created_at': DateTime.now().millisecondsSinceEpoch,
-                });
-                if (mounted) {
-                  Navigator.pop(context);
-                  _loadTodos();
-                }
-              }
-            },
+            onPressed: () => _onAddTodoPressed(controller.text),
             child: const Text('添加'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _onAddTodoPressed(String content) async {
+    if (content.isEmpty) return;
+    await _databaseService.insertTodo({
+      'content': content,
+      'is_completed': 0,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    if (!mounted) return;
+    Navigator.pop(context);
+    _loadTodos();
   }
 }

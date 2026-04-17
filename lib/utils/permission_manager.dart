@@ -113,10 +113,12 @@ class PermissionManager {
 
     final micGranted = await checkMicrophonePermission();
     if (!micGranted) {
+      if (!context.mounted) return false;
       _showPermissionDeniedDialog(context, '麦克风');
       return false;
     }
 
+    if (!context.mounted) return false;
     // 存储权限解释
     final storageAllowed = await showPermissionExplanation(
       context,
@@ -124,29 +126,35 @@ class PermissionManager {
       'MemoryPal需要访问存储来保存录音文件和相关数据。',
     );
     if (!storageAllowed) return false;
+    if (!context.mounted) return false;
 
     final storageGranted = await checkStoragePermission();
     if (!storageGranted) {
+      if (!context.mounted) return false;
       _showPermissionDeniedDialog(context, '存储');
       return false;
     }
 
+    if (!context.mounted) return false;
     // 位置权限（可选）
     final locationAllowed = await showPermissionExplanation(
       context,
       '需要位置权限（可选）',
       'MemoryPal可以记录位置信息来帮助您回忆当时的情境。此功能完全可选，不会影响核心功能。',
     );
+    if (!context.mounted) return false;
     if (locationAllowed) {
       await checkLocationPermission();
     }
 
+    if (!context.mounted) return false;
     // 通知权限（可选）
     final notificationAllowed = await showPermissionExplanation(
       context,
       '需要通知权限（可选）',
       'MemoryPal需要发送通知来提醒您待办事项和重要信息。',
     );
+    if (!context.mounted) return false;
     if (notificationAllowed) {
       await checkNotificationPermission();
     }

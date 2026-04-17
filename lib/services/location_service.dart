@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'database_service.dart';
@@ -95,7 +96,7 @@ class LocationService {
       // 触发地址解析（异步，不阻塞）
       _resolveAddress(position.latitude, position.longitude);
     } catch (e) {
-      print('获取位置失败: $e');
+      debugPrint('获取位置失败: $e');
     }
   }
 
@@ -126,7 +127,7 @@ class LocationService {
         return address;
       }
     } catch (e) {
-      print('反向地理编码失败: $e');
+      debugPrint('反向地理编码失败: $e');
     }
 
     return null;
@@ -153,7 +154,7 @@ class LocationService {
         desiredAccuracy: LocationAccuracy.medium,
       );
     } catch (e) {
-      print('获取当前位置失败: $e');
+      debugPrint('获取当前位置失败: $e');
       return null;
     }
   }

@@ -47,13 +47,15 @@ target_include_directories(
 )
 
 # 链接库
+# 注意：whisper.cpp v1.8.4 中 whisper 目标已自动传递 ggml-base/ggml-cpu 等依赖，
+# 显式链接 ggml 会导致符号冲突或.so打包缺失
 target_link_libraries(
     whisper_jni
-    whisper  # whisper.cpp 库
-    ggml     # ggml 库
+    whisper  # whisper.cpp 库（已包含 ggml 传递依赖）
     android
     log
 )
 
 # 设置编译选项
 target_compile_options(whisper_jni PRIVATE -O3 -fPIC)
+set_target_properties(whisper_jni PROPERTIES POSITION_INDEPENDENT_CODE ON)

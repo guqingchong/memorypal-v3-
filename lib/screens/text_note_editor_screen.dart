@@ -19,7 +19,7 @@ class _TextNoteEditorScreenState extends State<TextNoteEditorScreen> {
   final _contentController = TextEditingController();
   final _tagController = TextEditingController();
 
-  List<String> _tags = [];
+  final List<String> _tags = [];
   bool _isSaving = false;
 
   @override

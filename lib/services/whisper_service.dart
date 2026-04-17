@@ -1,20 +1,20 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'developer_service.dart';
+import 'whisper_local_service.dart';
 
-// Whisper服务 - 语音转文字
+/// Whisper服务 - 语音转文字
+///
+/// 【注意】此服务现已成为 [WhisperLocalService] 的薄包装器，
+/// 用于保持对现有调用方（recording_service.dart、chat_screen.dart）的接口兼容性。
 class WhisperService {
-  static const MethodChannel _channel = MethodChannel('com.memorypal/whisper');
   static final WhisperService _instance = WhisperService._internal();
-
   factory WhisperService() => _instance;
   WhisperService._internal();
 
   bool _isInitialized = false;
-  bool _isModelLoaded = false;
   final _developerService = DeveloperService();
+  final _localService = WhisperLocalService();
 
   // 初始化Whisper
   Future<bool> initialize({String? modelPath}) async {
@@ -23,42 +23,13 @@ class WhisperService {
     _developerService.log('开始初始化Whisper...', tag: 'Whisper');
 
     try {
-      // 如果没有提供模型路径，使用默认路径
-      String path = modelPath ?? await _getDefaultModelPath();
-      if (path.isEmpty) {
-        _developerService.log('Whisper初始化失败: 未找到模型文件', level: LogLevel.error, tag: 'Whisper');
-        return false;
+      final success = await _localService.initialize(modelPath: modelPath);
+      _isInitialized = success;
+      if (success) {
+        // model loaded successfully
       }
-
-      _developerService.log('使用模型路径: $path', tag: 'Whisper');
-
-      // 检查模型文件是否存在
-      final modelFile = File(path);
-      if (!await modelFile.exists()) {
-        _developerService.log('模型文件不存在: $path', level: LogLevel.error, tag: 'Whisper');
-        return false;
-      }
-
-      final fileSize = await modelFile.length();
-      _developerService.log('模型文件大小: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB', tag: 'Whisper');
-
-      _developerService.log('调用原生层初始化...', tag: 'Whisper');
-      final result = await _channel.invokeMethod('initialize', {'modelPath': path});
-      _isInitialized = result == true;
-      if (_isInitialized) {
-        _isModelLoaded = true;
-      }
-      _developerService.log('Whisper初始化${_isInitialized ? "成功" : "失败"}: $path', tag: 'Whisper');
+      _developerService.log('Whisper初始化${_isInitialized ? "成功" : "失败"}', tag: 'Whisper');
       return _isInitialized;
-    } on PlatformException catch (e, stack) {
-      _developerService.log(
-        'Whisper初始化失败(PlatformException): ${e.code} - ${e.message}',
-        level: LogLevel.error,
-        tag: 'Whisper',
-        error: e,
-        stackTrace: stack,
-      );
-      return false;
     } catch (e, stack) {
       _developerService.log(
         'Whisper初始化失败: $e',
@@ -71,42 +42,10 @@ class WhisperService {
     }
   }
 
-  // 获取默认模型路径
-  Future<String> _getDefaultModelPath() async {
-    try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final modelDir = Directory('${appDir.path}/models');
-
-      // 检查可能的模型文件名
-      final modelFiles = ['ggml-small.bin', 'ggml-tiny.bin', 'ggml-base.bin'];
-      for (final fileName in modelFiles) {
-        final modelPath = '${modelDir.path}/$fileName';
-        if (await File(modelPath).exists()) {
-          return modelPath;
-        }
-      }
-
-      return '';
-    } catch (e) {
-      _developerService.log('获取模型路径失败: $e', level: LogLevel.error, tag: 'Whisper');
-      return '';
-    }
-  }
-
-  // 加载模型（动态下载）
+  // 加载模型（动态下载）- 已弃用，直接委托给 initialize
+  @Deprecated('请直接使用 initialize(modelPath: modelPath)')
   Future<bool> loadModel(String modelPath) async {
-    if (_isModelLoaded) return true;
-
-    try {
-      final result = await _channel.invokeMethod('loadModel', {
-        'modelPath': modelPath,
-      });
-      _isModelLoaded = result == true;
-      return _isModelLoaded;
-    } catch (e, stack) {
-      _developerService.log('加载Whisper模型失败', level: LogLevel.error, tag: 'Whisper', error: e, stackTrace: stack);
-      return false;
-    }
+    return initialize(modelPath: modelPath);
   }
 
   // 转写音频文件
@@ -141,17 +80,12 @@ class WhisperService {
       _developerService.log('转写警告: 音频文件过小 (${fileSize}bytes)', level: LogLevel.warning, tag: 'Whisper');
     }
 
-    _developerService.log('开始转写: $audioPath, 大小: ${fileSize} bytes, 语言: $language', tag: 'Whisper');
+    _developerService.log('开始转写: $audioPath, 大小: $fileSize bytes, 语言: $language', tag: 'Whisper');
 
     try {
-      _developerService.log('调用原生层transcribe方法...', tag: 'Whisper');
-      final result = await _channel.invokeMethod('transcribe', {
-        'audioPath': audioPath,
-        'language': language,
-      });
+      final result = await _localService.transcribe(audioPath, language: language);
 
-      // 适配原生层返回格式：原生返回String，Flutter包装为结果对象
-      if (result is String) {
+      if (result != null && result.isNotEmpty) {
         _developerService.log('转写成功，结果长度: ${result.length}', tag: 'Whisper');
         return TranscriptionResult(
           text: result,
@@ -160,29 +94,7 @@ class WhisperService {
         );
       }
 
-      // 如果原生层改为返回Map，也支持
-      if (result is Map) {
-        final text = result['text'] as String? ?? '';
-        _developerService.log('转写成功(Map格式)，结果长度: ${text.length}', tag: 'Whisper');
-        return TranscriptionResult(
-          text: text,
-          language: result['language'] as String? ?? language,
-          segments: (result['segments'] as List<dynamic>?)
-              ?.map((s) => TranscriptionSegment.fromMap(s))
-              .toList(),
-        );
-      }
-
-      _developerService.log('转写返回未知格式: ${result.runtimeType}', level: LogLevel.warning, tag: 'Whisper');
-      return null;
-    } on PlatformException catch (e, stack) {
-      _developerService.log(
-        '转写失败(PlatformException): code=${e.code}, message=${e.message}, details=${e.details}',
-        level: LogLevel.error,
-        tag: 'Whisper',
-        error: e,
-        stackTrace: stack,
-      );
+      _developerService.log('转写结果为空', level: LogLevel.warning, tag: 'Whisper');
       return null;
     } catch (e, stack) {
       _developerService.log(

@@ -36,17 +36,13 @@ class ProactiveDialogueEngine {
   // 状态
   bool _isEngineRunning = false;
   DateTime? _lastProactiveMessage;
-  UserProfile? _userProfile;
 
   // 配置
   static const int _minHoursBetweenMessages = 4; // 最少间隔4小时
-  static const int _maxDailyMessages = 5; // 每天最多主动消息数
 
   /// 初始化引擎
   Future<void> initialize() async {
     if (_isEngineRunning) return;
-
-    _userProfile = await _databaseService.getUserProfile();
 
     // 设置定时检查（每30分钟）
     _checkTimer = Timer.periodic(const Duration(minutes: 30), (_) {
@@ -126,9 +122,6 @@ class ProactiveDialogueEngine {
 
   /// 生成晚间总结
   Future<void> _generateEveningSummary() async {
-    final profile = await _databaseService.getUserProfile();
-    final name = profile?.name ?? '';
-
     // 获取今日记录
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);

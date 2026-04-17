@@ -69,6 +69,17 @@ public class AudioConverter {
             extractor.selectTrack(audioTrackIndex);
             MediaFormat inputFormat = extractor.getTrackFormat(audioTrackIndex);
 
+            // 读取音频格式参数
+            int channelCount = 2;
+            int inputSampleRate = 44100;
+            if (inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            }
+            if (inputFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                inputSampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            }
+            Log.d(TAG, "输入音频格式: " + channelCount + "声道, " + inputSampleRate + "Hz");
+
             // 创建解码器
             String mime = inputFormat.getString(MediaFormat.KEY_MIME);
             codec = MediaCodec.createDecoderByType(mime);
@@ -82,8 +93,13 @@ public class AudioConverter {
             byte[] wavHeader = new byte[44];
             outputStream.write(wavHeader);
 
+            // 构建音频上下文
+            AudioContext context = new AudioContext();
+            context.channelCount = channelCount;
+            context.inputSampleRate = inputSampleRate;
+
             // 解码并写入PCM数据
-            int totalSamples = decodeAudio(extractor, codec, outputStream);
+            int totalSamples = decodeAudio(extractor, codec, outputStream, context);
 
             // 关闭输出流以便修改文件
             outputStream.close();
@@ -121,10 +137,19 @@ public class AudioConverter {
     }
 
     /**
+     * 音频处理上下文，保存跨Buffer的状态
+     */
+    private static class AudioContext {
+        int channelCount = 2;
+        int inputSampleRate = 44100;
+        double sampleAccumulator = 0.0;
+    }
+
+    /**
      * 解码音频数据
      */
-    private static int decodeAudio(MediaExtractor extractor, MediaCodec codec, FileOutputStream outputStream)
-            throws IOException {
+    private static int decodeAudio(MediaExtractor extractor, MediaCodec codec,
+            FileOutputStream outputStream, AudioContext context) throws IOException {
 
         ByteBuffer[] inputBuffers = codec.getInputBuffers();
         ByteBuffer[] outputBuffers = codec.getOutputBuffers();
@@ -132,10 +157,6 @@ public class AudioConverter {
         MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
         boolean isEOS = false;
         int totalSamples = 0;
-
-        // 重采样缓冲区
-        ByteBuffer resampleBuffer = ByteBuffer.allocateDirect(8192);
-        resampleBuffer.order(ByteOrder.LITTLE_ENDIAN);
 
         while (!isEOS) {
             // 输入数据
@@ -160,7 +181,7 @@ public class AudioConverter {
                 ByteBuffer outputBuffer = outputBuffers[outputBufferIndex];
 
                 // 处理输出数据：重采样到16kHz单声道
-                byte[] pcmData = processOutputBuffer(outputBuffer, bufferInfo);
+                byte[] pcmData = processOutputBuffer(outputBuffer, bufferInfo, context);
                 if (pcmData != null && pcmData.length > 0) {
                     outputStream.write(pcmData);
                     totalSamples += pcmData.length / 2; // 16-bit samples
@@ -181,6 +202,14 @@ public class AudioConverter {
             } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 MediaFormat newFormat = codec.getOutputFormat();
                 Log.d(TAG, "输出格式变化: " + newFormat);
+                if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                    context.channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    Log.d(TAG, "更新声道数: " + context.channelCount);
+                }
+                if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                    context.inputSampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    Log.d(TAG, "更新采样率: " + context.inputSampleRate);
+                }
             }
         }
 
@@ -189,31 +218,41 @@ public class AudioConverter {
 
     /**
      * 处理输出缓冲区：转换为16kHz单声道16-bit PCM
+     *
+     * 支持动态声道数(1/2/n)和动态采样率降采样
      */
-    private static byte[] processOutputBuffer(ByteBuffer buffer, MediaCodec.BufferInfo info) {
+    private static byte[] processOutputBuffer(ByteBuffer buffer, MediaCodec.BufferInfo info, AudioContext context) {
         buffer.position(info.offset);
         buffer.limit(info.offset + info.size);
 
-        // 简化的处理：假设输入是44.1kHz或48kHz立体声
-        // 需要根据实际情况重采样和降混音
+        int bytesPerFrame = context.channelCount * 2;
+        if (bytesPerFrame <= 0) {
+            bytesPerFrame = 2;
+        }
 
-        byte[] output = new byte[info.size / 4]; // 粗略估计：立体声转单声道
+        // 估算输出大小：每个输入帧最多输出一个16-bit mono样本
+        byte[] output = new byte[info.size / bytesPerFrame * 2 + 8];
         int outputPos = 0;
 
-        // 使用16-bit有符号PCM
-        while (buffer.remaining() >= 4 && outputPos < output.length - 2) {
-            // 读取左右声道(16-bit each)
-            short left = buffer.getShort();
-            short right = buffer.getShort();
+        double sampleStep = context.inputSampleRate / (double) SAMPLE_RATE;
+        if (sampleStep <= 0) {
+            sampleStep = 1.0;
+        }
 
-            // 混音为单声道
-            int mixed = (left + right) / 2;
+        while (buffer.remaining() >= bytesPerFrame && outputPos < output.length - 2) {
+            // 读取一帧的所有声道并混音为单声道
+            long frameSum = 0;
+            for (int ch = 0; ch < context.channelCount; ch++) {
+                frameSum += buffer.getShort();
+            }
+            int mixed = (int) (frameSum / context.channelCount);
 
-            // 简单的降采样(从44.1kHz到16kHz，约每2.75个样本取1个)
-            // 这里使用简单的跳过样本方式，实际应该使用更好的重采样算法
-            if (outputPos % 3 == 0) {
+            // 降采样：按采样率比例抽取帧
+            context.sampleAccumulator += 1.0;
+            if (context.sampleAccumulator >= sampleStep) {
                 output[outputPos++] = (byte) (mixed & 0xFF);
                 output[outputPos++] = (byte) ((mixed >> 8) & 0xFF);
+                context.sampleAccumulator -= sampleStep;
             }
         }
 

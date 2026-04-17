@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,7 +20,6 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
 
   DiagnosticReport? _lastReport;
   bool _isRunningDiagnostic = false;
-  bool _showAllLogs = false;
 
   @override
   void initState() {
@@ -397,24 +395,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
               leading: const Icon(Icons.storage, color: Colors.green),
               title: const Text('数据存储'),
               subtitle: const Text('点击检查存储状态'),
-              onTap: () async {
-                final dir = await _getAppDirectory();
-                if (mounted) {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('存储信息'),
-                      content: Text(dir ?? '无法获取存储路径'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('确定'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-              },
+              onTap: _showStorageInfo,
             ),
           ]),
 
@@ -424,15 +405,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: OutlinedButton.icon(
-              onPressed: () async {
-                await _developerService.disableDeveloperMode();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('开发者模式已关闭')),
-                  );
-                  Navigator.pop(context);
-                }
-              },
+              onPressed: _disableDeveloperMode,
               icon: const Icon(Icons.exit_to_app),
               label: const Text('关闭开发者模式'),
             ),
@@ -566,6 +539,33 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
+  Future<void> _showStorageInfo() async {
+    final dir = await _getAppDirectory();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('存储信息'),
+        content: Text(dir ?? '无法获取存储路径'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _disableDeveloperMode() async {
+    await _developerService.disableDeveloperMode();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('开发者模式已关闭')),
+    );
+    Navigator.pop(context);
+  }
+
   Future<String?> _getAppDirectory() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -592,12 +592,9 @@ class _RecordingTestDialog extends StatefulWidget {
 }
 
 class _RecordingTestDialogState extends State<_RecordingTestDialog> {
-  bool _isRecording = false;
   int _seconds = 0;
 
   Future<void> _startTest() async {
-    setState(() => _isRecording = true);
-
     final result = await widget.recordingService.startRecording();
 
     if (!result) {
@@ -614,7 +611,7 @@ class _RecordingTestDialogState extends State<_RecordingTestDialog> {
     }
 
     await widget.recordingService.stopRecording();
-    widget.onComplete(true, '录音测试成功 (${_seconds}秒)');
+    widget.onComplete(true, '录音测试成功 ($_seconds秒)');
   }
 
   @override

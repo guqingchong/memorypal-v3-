@@ -14,6 +14,16 @@
 // 音频采样率
 #define SAMPLE_RATE 16000
 
+// 辅助：读取4字节小端int32
+template<typename T>
+static T read_le(const char* p) {
+    T val = 0;
+    for (size_t i = 0; i < sizeof(T); i++) {
+        val |= (static_cast<uint8_t>(p[i]) << (8 * i));
+    }
+    return val;
+}
+
 // 将音频文件读取为 16kHz float 数组
 // 支持 WAV 格式（需要是 16kHz, 16-bit, mono）
 bool read_wav_file(const std::string& fname, std::vector<float>& pcmf32) {
@@ -23,27 +33,66 @@ bool read_wav_file(const std::string& fname, std::vector<float>& pcmf32) {
         return false;
     }
 
-    // 读取 WAV 头部
-    char header[44];
-    file.read(header, 44);
+    // 读取 RIFF 和 WAVE 标记
+    char riff[4], wave[4];
+    file.read(riff, 4);
+    file.seekg(4, std::ios::cur); // 跳过文件大小
+    file.read(wave, 4);
 
-    if (file.gcount() < 44) {
-        LOGE("Invalid WAV file: %s", fname.c_str());
-        return false;
-    }
-
-    // 检查 WAV 标记
-    if (strncmp(header, "RIFF", 4) != 0 || strncmp(header + 8, "WAVE", 4) != 0) {
+    if (strncmp(riff, "RIFF", 4) != 0 || strncmp(wave, "WAVE", 4) != 0) {
         LOGE("Not a valid WAV file: %s", fname.c_str());
         return false;
     }
 
-    // 获取音频格式信息
-    int16_t audio_format = *reinterpret_cast<int16_t*>(header + 20);
-    int16_t num_channels = *reinterpret_cast<int16_t*>(header + 22);
-    int32_t sample_rate = *reinterpret_cast<int32_t*>(header + 24);
-    int16_t bits_per_sample = *reinterpret_cast<int16_t*>(header + 34);
-    int32_t data_size = *reinterpret_cast<int32_t*>(header + 40);
+    int16_t audio_format = 0;
+    int16_t num_channels = 0;
+    int32_t sample_rate = 0;
+    int16_t bits_per_sample = 0;
+    int32_t data_size = 0;
+    std::vector<int16_t> pcm16;
+    bool found_fmt = false;
+    bool found_data = false;
+
+    // 遍历 chunk
+    while (file.good() && !file.eof()) {
+        char chunk_id[4];
+        char chunk_size_raw[4];
+        file.read(chunk_id, 4);
+        if (file.gcount() < 4) break;
+        file.read(chunk_size_raw, 4);
+        if (file.gcount() < 4) break;
+
+        int32_t chunk_size = read_le<int32_t>(chunk_size_raw);
+
+        if (strncmp(chunk_id, "fmt ", 4) == 0) {
+            std::vector<char> fmt_data(chunk_size);
+            file.read(fmt_data.data(), chunk_size);
+            if (chunk_size >= 16) {
+                audio_format = read_le<int16_t>(fmt_data.data() + 0);
+                num_channels = read_le<int16_t>(fmt_data.data() + 2);
+                sample_rate = read_le<int32_t>(fmt_data.data() + 4);
+                bits_per_sample = read_le<int16_t>(fmt_data.data() + 14);
+                found_fmt = true;
+            }
+        } else if (strncmp(chunk_id, "data", 4) == 0) {
+            data_size = chunk_size;
+            // 防止奇数 data_size 导致越界：多预留一个 int16_t 的空间
+            pcm16.resize((data_size + 1) / 2);
+            file.read(reinterpret_cast<char*>(pcm16.data()), data_size);
+            found_data = true;
+            break; // data 是最后一个需要的 chunk
+        } else {
+            // 跳过未知 chunk（如 JUNK、LIST、INFO 等）
+            if (chunk_size > 0) {
+                file.seekg(chunk_size, std::ios::cur);
+            }
+        }
+    }
+
+    if (!found_fmt || !found_data) {
+        LOGE("WAV file missing fmt or data chunk: %s", fname.c_str());
+        return false;
+    }
 
     LOGD("WAV Info: format=%d, channels=%d, rate=%d, bits=%d, size=%d",
          audio_format, num_channels, sample_rate, bits_per_sample, data_size);
@@ -53,45 +102,53 @@ bool read_wav_file(const std::string& fname, std::vector<float>& pcmf32) {
         return false;
     }
 
-    // 读取音频数据
-    std::vector<int16_t> pcm16;
-    pcm16.resize(data_size / 2);
-    file.read(reinterpret_cast<char*>(pcm16.data()), data_size);
-
     // 转换为 float 并处理采样率和声道
     pcmf32.clear();
 
-    if (sample_rate == SAMPLE_RATE && num_channels == 1) {
-        // 直接转换
-        for (int16_t sample : pcm16) {
-            pcmf32.push_back(sample / 32768.0f);
-        }
-    } else if (sample_rate == SAMPLE_RATE && num_channels == 2) {
-        // 立体声转单声道
-        for (size_t i = 0; i < pcm16.size(); i += 2) {
-            float mono = (pcm16[i] + pcm16[i + 1]) / 2.0f / 32768.0f;
-            pcmf32.push_back(mono);
+    if (sample_rate == SAMPLE_RATE) {
+        // 同采样率：只需将多声道混音为单声道
+        if (num_channels == 1) {
+            for (int16_t sample : pcm16) {
+                pcmf32.push_back(sample / 32768.0f);
+            }
+        } else {
+            // 通用多声道混音（交错格式）
+            for (size_t i = 0; i < pcm16.size(); i += num_channels) {
+                float sum = 0.0f;
+                for (int16_t ch = 0; ch < num_channels; ch++) {
+                    if (i + ch < pcm16.size()) {
+                        sum += pcm16[i + ch];
+                    }
+                }
+                pcmf32.push_back((sum / num_channels) / 32768.0f);
+            }
         }
     } else if (sample_rate != SAMPLE_RATE) {
-        // 重采样（简单线性插值）
+        // 重采样（简单线性插值）+ 多声道混音
         float ratio = (float)sample_rate / SAMPLE_RATE;
         size_t num_samples = pcm16.size() / num_channels;
         size_t target_samples = (size_t)(num_samples / ratio);
 
         for (size_t i = 0; i < target_samples; i++) {
-            float src_idx = i * ratio * num_channels;
-            size_t idx = (size_t)src_idx;
-            float frac = src_idx - idx;
+            float src_frame = i * ratio;
+            size_t idx = (size_t)src_frame;
+            float frac = src_frame - idx;
 
-            if (idx + num_channels < pcm16.size()) {
+            if (idx + 1 < num_samples) {
                 float sample = 0;
                 if (num_channels == 1) {
                     sample = pcm16[idx] * (1 - frac) + pcm16[idx + 1] * frac;
                 } else {
-                    // 取左右声道平均
-                    float left = pcm16[idx * 2] * (1 - frac) + pcm16[(idx + 1) * 2] * frac;
-                    float right = pcm16[idx * 2 + 1] * (1 - frac) + pcm16[(idx + 1) * 2 + 1] * frac;
-                    sample = (left + right) / 2.0f;
+                    // 通用多声道：先对每声道插值，再混音为单声道
+                    float sum = 0.0f;
+                    for (int16_t ch = 0; ch < num_channels; ch++) {
+                        size_t base = idx * num_channels + ch;
+                        size_t next = (idx + 1) * num_channels + ch;
+                        if (next < pcm16.size()) {
+                            sum += pcm16[base] * (1 - frac) + pcm16[next] * frac;
+                        }
+                    }
+                    sample = sum / num_channels;
                 }
                 pcmf32.push_back(sample / 32768.0f);
             }

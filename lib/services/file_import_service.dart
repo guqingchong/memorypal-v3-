@@ -122,7 +122,6 @@ class FileImportService {
 
       return text;
     } catch (e) {
-      print('Word解析失败: $e');
       return 'Word解析失败: $e';
     }
   }

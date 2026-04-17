@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 
 /// 转写状态服务 - 跟踪和管理转写任务状态
 ///

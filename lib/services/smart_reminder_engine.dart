@@ -19,9 +19,6 @@ class SmartReminderEngine {
   Timer? _contextCheckTimer;
 
   // 上下文状态
-  DateTime? _lastActivityTime;
-  String? _lastLocation;
-  int _consecutiveChecksWithoutActivity = 0;
 
   /// 初始化引擎
   Future<void> initialize() async {
@@ -210,9 +207,7 @@ class SmartReminderEngine {
 
   /// 记录用户活动
   void recordActivity(String type, {String? location}) {
-    _lastActivityTime = DateTime.now();
-    if (location != null) _lastLocation = location;
-    _consecutiveChecksWithoutActivity = 0;
+    // 当前为空实现，保留方法以维持API兼容性
   }
 
   /// 停止引擎

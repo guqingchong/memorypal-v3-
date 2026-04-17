@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/recording.dart';
 import 'database_service.dart';
@@ -13,7 +12,7 @@ class SystemRecordingImporter {
 
   // 各品牌手机的录音目录
   // 涵盖市场上主流品牌的系统录音路径
-  static const Map<String, List<String>> RECORDING_PATHS = {
+  static const Map<String, List<String>> recordingPaths = {
     'huawei': [
       // 用户反馈的常用路径（优先检查）
       '/storage/emulated/0/sound/',
@@ -153,7 +152,7 @@ class SystemRecordingImporter {
 
   // 录音文件扩展名
   // 支持各品牌手机的各种通话录音格式
-  static const List<String> AUDIO_EXTENSIONS = [
+  static const List<String> audioExtensions = [
     '.m4a',      // iPhone/华为/小米通用格式
     '.aac',      // 高级音频编码
     '.amr',      // 诺基亚/老款安卓常用
@@ -189,7 +188,7 @@ class SystemRecordingImporter {
     }
 
     // 扫描所有可能的录音目录
-    for (final entry in RECORDING_PATHS.entries) {
+    for (final entry in recordingPaths.entries) {
       final brand = entry.key;
       final paths = entry.value;
 
@@ -199,7 +198,7 @@ class SystemRecordingImporter {
 
         try {
           final files = await dir
-              .list()
+              .list(recursive: true)
               .where((entity) => entity is File)
               .map((entity) => entity as File)
               .where((file) => _isAudioFile(file.path))
@@ -275,7 +274,7 @@ class SystemRecordingImporter {
   /// 检查是否为音频文件
   bool _isAudioFile(String path) {
     final lowerPath = path.toLowerCase();
-    return AUDIO_EXTENSIONS.any((ext) => lowerPath.endsWith(ext));
+    return audioExtensions.any((ext) => lowerPath.endsWith(ext));
   }
 
   /// 处理录音文件
@@ -310,17 +309,9 @@ class SystemRecordingImporter {
         return null;
       }
 
-      // 复制到应用目录
-      final appDir = await getApplicationDocumentsDirectory();
-      final recordingsDir = Directory('${appDir.path}/system_recordings');
-      if (!await recordingsDir.exists()) {
-        await recordingsDir.create(recursive: true);
-      }
-
-      final fileName =
-          'system_${DateTime.now().millisecondsSinceEpoch}_${file.uri.pathSegments.last}';
-      final destPath = '${recordingsDir.path}/$fileName';
-      await file.copy(destPath);
+      // 直接使用原始文件路径，不再复制到应用目录，避免占用双倍空间
+      final fileName = file.uri.pathSegments.last;
+      final destPath = file.path;
 
       // 创建 Recording 对象
       final recording = Recording(
@@ -487,11 +478,15 @@ class SystemRecordingImporter {
   }
 
   /// 检查文件是否已导入
+  /// 兼容旧版复制导入（filePath指向应用内部路径）和新版直接引用（filePath为原始路径）
   Future<bool> _isAlreadyImported(String originalPath) async {
-    final recordings = await _databaseService.getRecordings();
+    final fileName = originalPath.split('/').last;
+    final recordings = await _databaseService.getRecordings(limit: 10000);
     return recordings.any((r) =>
         r.source == 'system_call' &&
-        r.filePath.contains(originalPath.split('/').last));
+        (r.filePath == originalPath ||
+         r.filePath.endsWith('/$fileName') ||
+         r.fileName == fileName));
   }
 
   /// 扫描所有系统录音（不分品牌）
@@ -510,7 +505,7 @@ class SystemRecordingImporter {
     int totalDirsExist = 0;
 
     // 扫描所有可能的录音目录
-    for (final entry in RECORDING_PATHS.entries) {
+    for (final entry in recordingPaths.entries) {
       final brand = entry.key;
       final paths = entry.value;
 
@@ -530,16 +525,9 @@ class SystemRecordingImporter {
           totalDirsExist++;
           debugPrint('目录存在，开始扫描文件...');
 
-          // 尝试列出文件
-          List<FileSystemEntity> entities;
-          try {
-            entities = await dir.list().toList();
-          } catch (e) {
-            debugPrint('无法读取目录 $path: $e');
-            continue;
-          }
-
-          final files = entities
+          // 递归扫描音频文件
+          final files = await dir
+              .list(recursive: true)
               .where((entity) => entity is File)
               .map((entity) => entity as File)
               .where((file) => _isAudioFile(file.path))

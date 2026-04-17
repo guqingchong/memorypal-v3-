@@ -49,7 +49,7 @@ class AIInsightCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: _getTypeColor(insight.type).withOpacity(0.1),
+              color: _getTypeColor(insight.type).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -135,7 +135,7 @@ class AIInsightCard extends StatelessWidget {
 
     for (final key in descriptions.keys) {
       if (personality.contains(key)) {
-        return '${personality}（${descriptions[key]}）';
+        return '$personality（${descriptions[key]}）';
       }
     }
 

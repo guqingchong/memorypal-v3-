@@ -85,6 +85,12 @@ dependencies:
   # 文件分享
   share_plus: ^7.2.1
 
+  # 时区（被flutter_local_notifications间接依赖，但应显式声明）
+  timezone: ^0.9.2
+
+  # HTTP请求（被多个包间接依赖，但model_download_service直接引用）
+  http: ^1.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

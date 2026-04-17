@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Whisper平台通道 - 调用原生代码
@@ -23,7 +24,7 @@ class WhisperPlatformChannel {
       });
       return result ?? false;
     } on PlatformException catch (e) {
-      print('Whisper初始化错误: ${e.message}');
+      debugPrint('Whisper初始化错误: ${e.message}');
       return false;
     }
   }
@@ -40,7 +41,7 @@ class WhisperPlatformChannel {
       });
       return result;
     } on PlatformException catch (e) {
-      print('Whisper转写错误: ${e.message}');
+      debugPrint('Whisper转写错误: ${e.message}');
       return null;
     }
   }

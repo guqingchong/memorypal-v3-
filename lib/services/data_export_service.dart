@@ -31,7 +31,6 @@ class DataExportService {
 
       // 保存到临时文件
       final tempDir = await getTemporaryDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'memorypal_export_${_formatDateTime(DateTime.now())}.json';
       final filePath = '${tempDir.path}/$fileName';
 

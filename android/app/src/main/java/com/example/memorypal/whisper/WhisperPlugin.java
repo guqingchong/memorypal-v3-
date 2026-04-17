@@ -24,28 +24,30 @@ public class WhisperPlugin implements MethodCallHandler {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // 库加载状态（必须在初始化时捕获真实错误）
+    private static boolean sLibraryLoaded = false;
+    private static String sLibraryLoadError = null;
+
     // Native方法声明
     static {
         try {
             System.loadLibrary("whisper_jni");
+            sLibraryLoaded = true;
             Log.i(TAG, "whisper_jni library loaded successfully");
         } catch (UnsatisfiedLinkError e) {
+            sLibraryLoaded = false;
+            sLibraryLoadError = e.getMessage();
             Log.e(TAG, "Failed to load whisper_jni library: " + e.getMessage(), e);
-            // 库加载失败是致命错误，需要在初始化时检测
         } catch (Exception e) {
+            sLibraryLoaded = false;
+            sLibraryLoadError = e.getMessage();
             Log.e(TAG, "Unexpected error loading library: " + e.getMessage(), e);
         }
     }
 
     // 检查库是否加载成功
     private static boolean isLibraryLoaded() {
-        try {
-            // 尝试访问一个native方法来验证库是否加载
-            System.loadLibrary("whisper_jni");
-            return true;
-        } catch (UnsatisfiedLinkError e) {
-            return false;
-        }
+        return sLibraryLoaded;
     }
 
     // JNI方法
@@ -87,9 +89,10 @@ public class WhisperPlugin implements MethodCallHandler {
     private void handleInitialize(MethodCall call, Result result) {
         // 首先检查库是否加载成功
         if (!isLibraryLoaded()) {
-            Log.e(TAG, "Whisper JNI library not loaded. Cannot initialize.");
+            String detail = sLibraryLoadError != null ? sLibraryLoadError : "unknown";
+            Log.e(TAG, "Whisper JNI library not loaded. Cannot initialize. Error: " + detail);
             result.error("LIBRARY_NOT_LOADED",
-                "Whisper native library not loaded. Please ensure the app was built correctly with CMake.",
+                "Whisper native library not loaded. Please ensure the app was built correctly with CMake. Error: " + detail,
                 null);
             return;
         }
@@ -164,9 +167,10 @@ public class WhisperPlugin implements MethodCallHandler {
     private void handleTranscribe(MethodCall call, Result result) {
         // 首先检查库是否加载成功
         if (!isLibraryLoaded()) {
-            Log.e(TAG, "Whisper JNI library not loaded. Cannot transcribe.");
+            String detail = sLibraryLoadError != null ? sLibraryLoadError : "unknown";
+            Log.e(TAG, "Whisper JNI library not loaded. Cannot transcribe. Error: " + detail);
             result.error("LIBRARY_NOT_LOADED",
-                "Whisper native library not loaded. Please ensure the app was built correctly with CMake.",
+                "Whisper native library not loaded. Please ensure the app was built correctly with CMake. Error: " + detail,
                 null);
             return;
         }

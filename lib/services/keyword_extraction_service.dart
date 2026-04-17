@@ -94,7 +94,7 @@ class KeywordExtractionService {
     final duration = recording.durationSeconds;
     if (duration > 0) {
       if (duration < 60) {
-        buffer.writeln('⏱️ 时长: ${duration}秒');
+        buffer.writeln('⏱️ 时长: $duration秒');
       } else {
         buffer.writeln('⏱️ 时长: ${(duration / 60).ceil()}分钟');
       }
@@ -190,7 +190,7 @@ class KeywordExtractionService {
 
     // 时间段
     if (hour >= 6 && hour < 12) {
-      description = '上午${hour}点';
+      description = '上午$hour点';
       tags.add('上午');
     } else if (hour >= 12 && hour < 14) {
       description = '中午';

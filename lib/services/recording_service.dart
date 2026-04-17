@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -42,12 +44,21 @@ class RecordingService {
   bool _isBackgroundRecording = false;
   bool get isBackgroundRecording => _isBackgroundRecording;
 
+  // 转写并发控制
+  bool _isTranscribing = false;
+
+  // 防重复 dispose
+  bool _isDisposed = false;
+
   // 初始化
   Future<void> initialize() async {
     try {
       _channel.setMethodCallHandler(_handleMethodCall);
+      // 启动时恢复可能遗漏的后台录音
+      await scanAndProcessBackgroundSegments();
+      await scanOrphanRecordings();
     } catch (e) {
-      print('录音服务初始化失败: $e');
+      debugPrint('录音服务初始化失败: $e');
     }
   }
 
@@ -179,7 +190,7 @@ class RecordingService {
   Future<void> _finalizeRecording() async {
     if (_currentRecording == null) return;
 
-    _developerService.log('完成录音并保存，时长: ${_recordingSeconds}秒', tag: 'Recording');
+    _developerService.log('完成录音并保存，时长: $_recordingSeconds秒', tag: 'Recording');
 
     // 生成智能标题
     final smartTitle = await _generateSmartTitle(_currentRecording!, _recordingSeconds);
@@ -314,7 +325,7 @@ class RecordingService {
 
       // 获取文件大小
       final fileSize = await file.length();
-      _developerService.log('文件大小: ${fileSize} bytes', tag: 'Recording');
+      _developerService.log('文件大小: $fileSize bytes', tag: 'Recording');
       if (fileSize < 1024) { // 小于1KB的录音不保存
         _developerService.log('⚠️ 录音文件太小(${fileSize}bytes)，跳过保存', level: LogLevel.warning, tag: 'Recording');
         return;
@@ -363,7 +374,7 @@ class RecordingService {
 
       _developerService.log('准备保存到数据库...', tag: 'Recording');
       final id = await _databaseService.insertRecording(recording);
-      _developerService.log('✅ 后台录音分段已保存到数据库，ID: $id, 时长: ${durationSeconds}秒, 大小: ${fileSize}bytes', tag: 'Recording');
+      _developerService.log('✅ 后台录音分段已保存到数据库，ID: $id, 时长: $durationSeconds秒, 大小: $fileSize bytes', tag: 'Recording');
 
       // 自动触发转写（后台录音也自动转写）
       if (id > 0) {
@@ -372,6 +383,130 @@ class RecordingService {
     } catch (e, stack) {
       _developerService.log(
         '处理后台录音分段失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  // 扫描并恢复 manifest 中记录的后台录音
+  Future<void> scanAndProcessBackgroundSegments() async {
+    try {
+      final directory = await _getRecordingDirectory();
+      final manifestFile = File('${directory.path}/background_segments.json');
+      if (!await manifestFile.exists()) return;
+
+      _developerService.log('扫描后台录音 manifest...', tag: 'Recording');
+
+      String content;
+      try {
+        content = await manifestFile.readAsString();
+      } catch (e) {
+        _developerService.log('读取 manifest 失败: $e', level: LogLevel.error, tag: 'Recording');
+        return;
+      }
+
+      List<dynamic> entries;
+      try {
+        entries = jsonDecode(content) as List<dynamic>;
+      } catch (e) {
+        _developerService.log('解析 manifest 失败，删除重建: $e', level: LogLevel.warning, tag: 'Recording');
+        await manifestFile.delete();
+        return;
+      }
+
+      final processedPaths = <String>[];
+      for (final entry in entries) {
+        if (entry is! Map) continue;
+        final filePath = entry['filePath'] as String?;
+        final duration = (entry['duration'] as num?)?.toInt() ?? 0;
+        if (filePath == null) continue;
+
+        final file = File(filePath);
+        if (!await file.exists()) {
+          _developerService.log('manifest 中的文件已不存在，跳过: $filePath', tag: 'Recording');
+          continue;
+        }
+
+        // 检查数据库是否已存在
+        final existing = await _databaseService.getRecordingByFilePath(filePath);
+        if (existing != null) {
+          _developerService.log('数据库中已存在，跳过: $filePath', tag: 'Recording');
+          processedPaths.add(filePath);
+          continue;
+        }
+
+        await _processSegment(filePath, duration);
+        processedPaths.add(filePath);
+      }
+
+      // 重写 manifest：仅保留仍存在于文件系统中但尚未被处理的条目
+      final remainingEntries = entries.where((entry) {
+        if (entry is! Map) return false;
+        final filePath = entry['filePath'] as String?;
+        if (filePath == null) return false;
+        return !processedPaths.contains(filePath);
+      }).toList();
+
+      if (remainingEntries.isEmpty) {
+        await manifestFile.delete();
+        _developerService.log('后台录音 manifest 已清空删除', tag: 'Recording');
+      } else {
+        await manifestFile.writeAsString(jsonEncode(remainingEntries));
+        _developerService.log('后台录音 manifest 已更新，剩余 ${remainingEntries.length} 条', tag: 'Recording');
+      }
+    } catch (e, stack) {
+      _developerService.log(
+        '扫描后台录音 manifest 失败',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  // 扫描目录中不在数据库的孤儿录音文件
+  Future<void> scanOrphanRecordings() async {
+    try {
+      final directory = await _getRecordingDirectory();
+      if (!await directory.exists()) return;
+
+      _developerService.log('扫描孤儿录音文件...', tag: 'Recording');
+
+      final files = (await directory.list().toList()).where((f) {
+        return f is File && path.basename(f.path).startsWith('voice_') && f.path.endsWith('.wav');
+      }).cast<File>().toList();
+
+      if (files.isEmpty) return;
+
+      // 批量查询数据库中的路径（limit 设大以覆盖近期文件）
+      final dbRecordings = await _databaseService.getRecordings(limit: 10000);
+      final dbPaths = dbRecordings.map((r) => r.filePath).toSet();
+
+      int processedCount = 0;
+      for (final file in files) {
+        if (dbPaths.contains(file.path)) continue;
+
+        final fileSize = await file.length();
+        // 16kHz mono 16bit = 32000 bytes/sec；粗略估算时长（减去 44 bytes WAV 头）
+        final estimatedDurationMs = math.max(0, ((fileSize - 44) / 32)).round();
+
+        _developerService.log(
+          '发现孤儿录音: ${path.basename(file.path)}, 估算时长: ${estimatedDurationMs}ms',
+          tag: 'Recording',
+        );
+
+        await _processSegment(file.path, estimatedDurationMs);
+        processedCount++;
+      }
+
+      _developerService.log('孤儿录音扫描完成，处理了 $processedCount 个文件', tag: 'Recording');
+    } catch (e, stack) {
+      _developerService.log(
+        '扫描孤儿录音失败',
         level: LogLevel.error,
         tag: 'Recording',
         error: e,
@@ -438,6 +573,33 @@ class RecordingService {
     } catch (e, stack) {
       _developerService.log(
         '删除录音失败 ID: $id',
+        level: LogLevel.error,
+        tag: 'Recording',
+        error: e,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  // 批量删除录音
+  Future<void> deleteRecordings(List<int> ids) async {
+    if (ids.isEmpty) return;
+    try {
+      _developerService.log('正在批量删除录音，数量: ${ids.length}', tag: 'Recording');
+      for (final id in ids) {
+        final recording = await _databaseService.getRecording(id);
+        if (recording != null) {
+          final file = File(recording.filePath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        }
+      }
+      await _databaseService.deleteRecordings(ids);
+      _developerService.log('批量删除录音完成，数量: ${ids.length}', tag: 'Recording');
+    } catch (e, stack) {
+      _developerService.log(
+        '批量删除录音失败',
         level: LogLevel.error,
         tag: 'Recording',
         error: e,
@@ -525,6 +687,9 @@ class RecordingService {
           _backgroundStatusTimer?.cancel();
           _developerService.log('后台录音已停止，取消状态检查', tag: 'Recording');
         }
+        // 定期扫描恢复遗漏的后台录音
+        await scanAndProcessBackgroundSegments();
+        await scanOrphanRecordings();
       } catch (e, stack) {
         _developerService.log(
           '检查后台录音状态失败',
@@ -558,6 +723,12 @@ class RecordingService {
 
   // 开始自动转写（公开方法，供其他服务调用）
   Future<void> startTranscription(int recordingId, String filePath) async {
+    if (_isTranscribing) {
+      _developerService.log('转写正在进行中，跳过本次请求 ID: $recordingId', level: LogLevel.warning, tag: 'Whisper');
+      return;
+    }
+
+    _isTranscribing = true;
     _developerService.log('开始自动转写录音 ID: $recordingId', tag: 'Whisper');
 
     try {
@@ -596,14 +767,19 @@ class RecordingService {
         error: e,
         stackTrace: stack,
       );
+    } finally {
+      _isTranscribing = false;
     }
   }
 
   // 释放资源
   void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
     _developerService.log('释放录音服务资源', tag: 'Recording');
     _recordingTimer?.cancel();
     _backgroundStatusTimer?.cancel();
+    _channel.setMethodCallHandler(null);
     _recordingStateController.close();
     _backgroundRecordingController.close();
   }

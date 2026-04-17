@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -35,17 +34,12 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
 
   // 音频播放器
   AudioPlayer? _audioPlayer;
-  PlayerState? _playerState;
 
   bool _isPlaying = false;
   double _currentPosition = 0;
   double _duration = 0;
   bool _isLoadingAudio = false;
   String? _audioError;
-
-  // 转写文本选择相关
-  TextEditingController? _textSelectionController;
-  String? _selectedText;
 
   // 自动提取的待办
   List<ExtractedTodo> _extractedTodos = [];
@@ -78,7 +72,6 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     _audioPlayer!.onPlayerStateChanged.listen((state) {
       if (mounted) {
         setState(() {
-          _playerState = state;
           _isPlaying = state == PlayerState.playing;
         });
       }
@@ -183,7 +176,6 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
   @override
   void dispose() {
     _audioPlayer?.dispose();
-    _textSelectionController?.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -266,21 +258,10 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
               child: const Text('取消'),
             ),
             ElevatedButton(
-              onPressed: () async {
-                if (contentController.text.trim().isEmpty) return;
-
-                await _createTodo(
-                  content: contentController.text.trim(),
-                  priority: priority,
-                );
-
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('待办已创建')),
-                  );
-                }
-              },
+              onPressed: () => _onCreateTodoPressed(
+                contentController.text.trim(),
+                priority,
+              ),
               child: const Text('创建'),
             ),
           ],
@@ -314,7 +295,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     return ChoiceChip(
       label: Text(label),
       selected: isSelected,
-      selectedColor: color.withOpacity(0.2),
+      selectedColor: color.withValues(alpha: 0.2),
       backgroundColor: Colors.grey.shade200,
       labelStyle: TextStyle(color: isSelected ? color : Colors.black87),
       onSelected: (_) => onSelect(value),
@@ -344,6 +325,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     final isModelDownloaded = await whisperService.isModelDownloaded();
     
     if (!isModelDownloaded) {
+      if (!mounted) return;
       // 显示下载对话框
       final downloaded = await ModelDownloadDialog.show(context);
       if (!downloaded) {
@@ -373,30 +355,30 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
       recordingMeta: widget.recording,
     );
 
-    if (mounted) {
-      Navigator.pop(context);
+    if (!mounted) return;
+    Navigator.pop(context);
 
-      if (result != null) {
-        // 更新录音的转写结果
-        final updatedRecording = widget.recording.copyWith(
-          transcript: result.text,
-          tags: result.tags,
-        );
-        await _databaseService.updateRecording(updatedRecording);
+    if (result != null) {
+      // 更新录音的转写结果
+      final updatedRecording = widget.recording.copyWith(
+        transcript: result.text,
+        tags: result.tags,
+      );
+      await _databaseService.updateRecording(updatedRecording);
 
-        setState(() {});
+      setState(() {});
+      if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('转写完成')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('转写失败，请检查网络连接'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('转写完成')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('转写失败，请检查网络连接'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -716,7 +698,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blue.withOpacity(0.3),
+                        color: Colors.blue.withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
@@ -971,7 +953,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: priorityColor.withOpacity(0.1),
+                        color: priorityColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1151,14 +1133,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
                 : SelectableText(
                     recording.transcript!,
                     style: const TextStyle(fontSize: 15, height: 1.6),
-                    onSelectionChanged: (selection, cause) {
-                      if (!selection.isCollapsed) {
-                        final text = recording.transcript!;
-                        if (selection.start >= 0 && selection.end <= text.length) {
-                          _selectedText = text.substring(selection.start, selection.end);
-                        }
-                      }
-                    },
+                    onSelectionChanged: null,
                   ),
           ),
         ),
@@ -1227,7 +1202,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, -4),
           ),
@@ -1270,6 +1245,28 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
     );
   }
 
+  Future<void> _onCreateTodoPressed(String content, String priority) async {
+    if (content.isEmpty) return;
+    await _createTodo(content: content, priority: priority);
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('待办已创建')),
+    );
+  }
+
+  Future<void> _onDeleteConfirmed() async {
+    Navigator.pop(context);
+    if (widget.recording.id != null) {
+      await _databaseService.deleteRecording(widget.recording.id!);
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('录音已删除')),
+      );
+    }
+  }
+
   void _confirmDelete() {
     showDialog(
       context: context,
@@ -1282,18 +1279,7 @@ class _RecordingDetailScreenState extends State<RecordingDetailScreen> {
             child: const Text('取消'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              if (widget.recording.id != null) {
-                await _databaseService.deleteRecording(widget.recording.id!);
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('录音已删除')),
-                  );
-                }
-              }
-            },
+            onPressed: _onDeleteConfirmed,
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('删除'),
           ),

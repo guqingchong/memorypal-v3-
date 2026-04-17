@@ -52,9 +52,7 @@ class TranscriptionService {
     }
 
     // Step 3: 降级到关键词提取
-    if (result == null) {
-      result = await _transcribeWithLocal(audioPath, recordingMeta: recordingMeta);
-    }
+    result ??= await _transcribeWithLocal(audioPath, recordingMeta: recordingMeta);
 
     return result;
   }

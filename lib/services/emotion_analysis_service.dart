@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 /// 情绪分析服务 - 基于词典和规则的文本情绪识别
@@ -17,7 +16,6 @@ class EmotionAnalysisService {
   // 情绪词典
   late final Map<String, double> _positiveWords;
   late final Map<String, double> _negativeWords;
-  late final Map<String, double> _neutralWords;
   late final Set<String> _negationWords;
   late final Map<String, double> _degreeWords;
 
@@ -29,7 +27,6 @@ class EmotionAnalysisService {
 
     _positiveWords = _buildPositiveDictionary();
     _negativeWords = _buildNegativeDictionary();
-    _neutralWords = _buildNeutralDictionary();
     _negationWords = _buildNegationWords();
     _degreeWords = _buildDegreeWords();
 
@@ -317,20 +314,12 @@ class EmotionAnalysisService {
       '讨厌': 0.6, '厌恶': 0.7, '反感': 0.6, '憎恨': 0.9,
 
       // 挫败类
-      '沮丧': 0.8, '失望': 0.7, '挫败': 0.8, '失败': 0.7, '无力': 0.7,
+      '失望': 0.7, '挫败': 0.8, '失败': 0.7, '无力': 0.7,
       '疲惫': 0.6, '累': 0.6, '厌倦': 0.7, '厌烦': 0.6, '无聊': 0.5,
 
       // 负面评价
       '糟糕': 0.7, '差': 0.6, '坏': 0.6, '烂': 0.7, '糟': 0.6,
-      '痛苦': 0.9, '折磨': 0.8, '煎熬': 0.8,
-    };
-  }
-
-  /// 构建中性词典
-  Map<String, double> _buildNeutralDictionary() {
-    return {
-      '平静': 0.5, '平淡': 0.3, '一般': 0.3, '还好': 0.4, '正常': 0.3,
-      '还行': 0.4, '可以': 0.4, '好吧': 0.3, '嗯': 0.2, '哦': 0.2,
+      '折磨': 0.8, '煎熬': 0.8,
     };
   }
 

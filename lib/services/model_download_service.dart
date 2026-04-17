@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
@@ -154,7 +155,7 @@ class ModelDownloadService {
         return (result['availableBytes'] as int) / (1024 * 1024);
       }
     } catch (e) {
-      print('获取存储空间失败: $e');
+      debugPrint('获取存储空间失败: $e');
     }
     return 0;
   }

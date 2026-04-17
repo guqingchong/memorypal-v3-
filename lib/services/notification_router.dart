@@ -1,12 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../screens/home_screen.dart';
 import '../screens/todo_list_screen.dart';
 import '../screens/recording_list_screen.dart';
 import '../screens/recording_detail_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
-import '../models/recording.dart';
 import 'database_service.dart';
 
 /// 通知路由处理器
@@ -123,10 +120,7 @@ class NotificationRouter {
 
     // 获取录音信息
     final recordings = await _databaseService.getRecordings(limit: 1000);
-    final recording = recordings.firstWhere(
-      (r) => r.id == recordingId,
-      orElse: () => null as Recording,
-    );
+    final recording = recordings.where((r) => r.id == recordingId).firstOrNull;
 
     if (recording == null) {
       await _navigateToRecordingList(navigator);

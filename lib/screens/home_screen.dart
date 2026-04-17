@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import '../models/note.dart';
@@ -21,8 +22,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _recordingService = RecordingService();
-
   int _currentIndex = 0;
 
   final _screens = const [
@@ -54,11 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _recordingService.dispose();
-    super.dispose();
-  }
 }
 
 class _HomeContent extends StatefulWidget {
@@ -74,17 +68,29 @@ class _HomeContentState extends State<_HomeContent> {
 
   List<Recording> _recentRecordings = [];
   List<Note> _recentNotes = [];
+  List<Map<String, dynamic>> _pendingTodos = [];
   bool _isRecording = false;
   bool _isBackgroundRecording = false;
   int _recordingSeconds = 0;
+  StreamSubscription<RecordingState>? _recordingStateSub;
+  StreamSubscription<bool>? _backgroundRecordingSub;
 
   @override
   void initState() {
     super.initState();
+    _recordingService.initialize();
     _loadData();
-    _recordingService.recordingState.listen(_onRecordingStateChanged);
-    _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
+    _loadTodos();
+    _recordingStateSub = _recordingService.recordingState.listen(_onRecordingStateChanged);
+    _backgroundRecordingSub = _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
     _checkBackgroundRecordingStatus();
+  }
+
+  @override
+  void dispose() {
+    _recordingStateSub?.cancel();
+    _backgroundRecordingSub?.cancel();
+    super.dispose();
   }
 
   // 设置分享接收监听
@@ -127,6 +133,10 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Future<void> _loadData() async {
+    // 下拉刷新时同步扫描后台录音
+    await _recordingService.scanAndProcessBackgroundSegments();
+    await _recordingService.scanOrphanRecordings();
+
     final recordings = await _databaseService.getRecordings(limit: 5);
     final notes = await _databaseService.getNotes(limit: 5);
     if (mounted) {
@@ -134,6 +144,19 @@ class _HomeContentState extends State<_HomeContent> {
         _recentRecordings = recordings;
         _recentNotes = notes;
       });
+    }
+  }
+
+  Future<void> _loadTodos() async {
+    try {
+      final todos = await _databaseService.getTodos(includeCompleted: false);
+      if (mounted) {
+        setState(() {
+          _pendingTodos = todos;
+        });
+      }
+    } catch (e) {
+      debugPrint('加载待办失败: $e');
     }
   }
 
@@ -208,7 +231,7 @@ class _HomeContentState extends State<_HomeContent> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
+                color: Colors.blue.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.psychology, color: Colors.blue, size: 24),
@@ -247,8 +270,12 @@ class _HomeContentState extends State<_HomeContent> {
         onRefresh: _loadData,
         child: ListView(
           padding: const EdgeInsets.all(16),
+          cacheExtent: 200,
+          addAutomaticKeepAlives: false,
           children: [
-            _buildRecordingButton(),
+            RepaintBoundary(
+              child: _buildRecordingButton(),
+            ),
             const SizedBox(height: 24),
             _buildQuickActions(),
             const SizedBox(height: 24),
@@ -516,8 +543,8 @@ class _HomeContentState extends State<_HomeContent> {
               color: (isAnyRecording
                       ? (_isBackgroundRecording ? Colors.green : Colors.red)
                       : Colors.blue)
-                  .withOpacity(0.4),
-              blurRadius: isAnyRecording ? 30 : 20,
+                  .withValues(alpha: 0.4),
+              blurRadius: isAnyRecording ? 16 : 8,
               offset: const Offset(0, 8),
             ),
           ],
@@ -531,7 +558,7 @@ class _HomeContentState extends State<_HomeContent> {
                 width: 72,
                 height: 72,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.3),
+                  color: Colors.white.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                 ),
                 child: Center(
@@ -539,7 +566,7 @@ class _HomeContentState extends State<_HomeContent> {
                     width: 56,
                     height: 56,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.5),
+                      color: Colors.white.withValues(alpha: 0.5),
                       shape: BoxShape.circle,
                     ),
                     child: Center(
@@ -558,7 +585,7 @@ class _HomeContentState extends State<_HomeContent> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -578,7 +605,7 @@ class _HomeContentState extends State<_HomeContent> {
             ),
             Text(
               subText,
-              style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
+              style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.8)),
             ),
           ],
         ),
@@ -638,90 +665,84 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildAssistantMessages() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _databaseService.getTodos(includeCompleted: false),
-      builder: (context, todoSnapshot) {
-        final pendingTodos = todoSnapshot.data ?? [];
-        final todayTodos = pendingTodos.where((t) {
-          final deadline = t['deadline'] as int?;
-          if (deadline == null) return false;
-          final date = DateTime.fromMillisecondsSinceEpoch(deadline);
-          final now = DateTime.now();
-          return date.year == now.year && date.month == now.month && date.day == now.day;
-        }).toList();
+    final todayTodos = _pendingTodos.where((t) {
+      final deadline = t['deadline'] as int?;
+      if (deadline == null) return false;
+      final date = DateTime.fromMillisecondsSinceEpoch(deadline);
+      final now = DateTime.now();
+      return date.year == now.year && date.month == now.month && date.day == now.day;
+    }).toList();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '今日助理消息',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: Colors.black87,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '今日助理消息',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
               ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (todayTodos.isNotEmpty) ...[
+                  _buildMessageItem(
+                    Icons.check_circle_rounded,
+                    '你有 ${todayTodos.length} 个待办事项今天到期',
+                    Colors.orange.shade400,
+                  ),
+                  Divider(color: Colors.grey.shade100, height: 24),
+                ],
+                if (_pendingTodos.isNotEmpty) ...[
+                  _buildMessageItem(
+                    Icons.task_alt_rounded,
+                    '共有 ${_pendingTodos.length} 个待办事项等待处理',
+                    Colors.blue.shade400,
+                  ),
+                  Divider(color: Colors.grey.shade100, height: 24),
+                ],
+                if (_recentRecordings.isEmpty && _recentNotes.isEmpty)
+                  _buildMessageItem(
+                    Icons.wb_sunny_rounded,
+                    '早安！今天还没有记录，开始记录你的生活吧',
+                    Colors.orange.shade400,
+                  )
+                else
+                  _buildMessageItem(
+                    Icons.lightbulb_rounded,
+                    '今天已记录 ${_recentRecordings.length} 条录音、${_recentNotes.length} 条笔记',
+                    Colors.green.shade400,
+                  ),
+                if (todayTodos.isEmpty && _pendingTodos.isEmpty && _recentRecordings.isEmpty && _recentNotes.isEmpty) ...[
+                  Divider(color: Colors.grey.shade100, height: 24),
+                  _buildMessageItem(
+                    Icons.psychology_rounded,
+                    '试试对我说："我最近有什么待办？"',
+                    Colors.purple.shade400,
                   ),
                 ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (todayTodos.isNotEmpty) ...[
-                      _buildMessageItem(
-                        Icons.check_circle_rounded,
-                        '你有 ${todayTodos.length} 个待办事项今天到期',
-                        Colors.orange.shade400,
-                      ),
-                      Divider(color: Colors.grey.shade100, height: 24),
-                    ],
-                    if (pendingTodos.isNotEmpty) ...[
-                      _buildMessageItem(
-                        Icons.task_alt_rounded,
-                        '共有 ${pendingTodos.length} 个待办事项等待处理',
-                        Colors.blue.shade400,
-                      ),
-                      Divider(color: Colors.grey.shade100, height: 24),
-                    ],
-                    if (_recentRecordings.isEmpty && _recentNotes.isEmpty)
-                      _buildMessageItem(
-                        Icons.wb_sunny_rounded,
-                        '早安！今天还没有记录，开始记录你的生活吧',
-                        Colors.orange.shade400,
-                      )
-                    else
-                      _buildMessageItem(
-                        Icons.lightbulb_rounded,
-                        '今天已记录 ${_recentRecordings.length} 条录音、${_recentNotes.length} 条笔记',
-                        Colors.green.shade400,
-                      ),
-                    if (todayTodos.isEmpty && pendingTodos.isEmpty && _recentRecordings.isEmpty && _recentNotes.isEmpty) ...[
-                      Divider(color: Colors.grey.shade100, height: 24),
-                      _buildMessageItem(
-                        Icons.psychology_rounded,
-                        '试试对我说："我最近有什么待办？"',
-                        Colors.purple.shade400,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+              ],
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 
@@ -733,7 +754,7 @@ class _HomeContentState extends State<_HomeContent> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 18, color: color),
@@ -815,7 +836,7 @@ class _HomeContentState extends State<_HomeContent> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -826,7 +847,7 @@ class _HomeContentState extends State<_HomeContent> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.blue.withOpacity(0.1),
+            color: Colors.blue.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.mic_rounded, color: Colors.blue, size: 22),
@@ -879,7 +900,7 @@ class _HomeContentState extends State<_HomeContent> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -890,7 +911,7 @@ class _HomeContentState extends State<_HomeContent> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: (isVoiceNote ? Colors.orange : Colors.green).withOpacity(0.1),
+            color: (isVoiceNote ? Colors.orange : Colors.green).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
@@ -945,7 +966,7 @@ class _ActionCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -957,7 +978,7 @@ class _ActionCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 24),

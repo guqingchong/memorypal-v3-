@@ -61,7 +61,7 @@ Future<void> main() async {
       // 捕获全局错误
       FlutterError.onError = (FlutterErrorDetails details) {
         developerService.log(
-          'Flutter错误: \${details.exception}',
+          'Flutter错误: ${details.exception}',
           level: LogLevel.error,
           tag: 'Flutter',
           error: details.exception,
@@ -73,7 +73,7 @@ Future<void> main() async {
       // 捕获异步错误
       PlatformDispatcher.instance.onError = (error, stack) {
         developerService.log(
-          '平台错误: \$error',
+          '平台错误: $error',
           level: LogLevel.error,
           tag: 'Platform',
           error: error,
@@ -87,7 +87,7 @@ Future<void> main() async {
     (error, stack) {
       // Zone级别的错误捕获
       DeveloperService().log(
-        '未捕获错误: \$error',
+        '未捕获错误: $error',
         level: LogLevel.error,
         tag: 'Zone',
         error: error,
@@ -123,7 +123,7 @@ class _MyAppState extends State<MyApp> {
     return MultiProvider(
       providers: [
         Provider(create: (_) => DatabaseService()),
-        Provider(create: (_) => RecordingService()..initialize()),
+        Provider(create: (_) => RecordingService()),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,
@@ -180,10 +180,13 @@ class _AppInitializerState extends State<AppInitializer> {
   }
 
   Future<void> _initializeApp() async {
+    // 各服务初始化添加 5 秒超时，避免单个服务卡住导致 ANR
+    const initTimeout = Duration(seconds: 5);
+
     // 初始化通知服务（失败不阻塞）
     try {
       _developerService.log('初始化通知服务...', tag: 'AppInit');
-      await NotificationService().initialize();
+      await NotificationService().initialize().timeout(initTimeout);
       _developerService.log('通知服务初始化成功', tag: 'AppInit');
     } catch (e, stack) {
       _developerService.log(
@@ -198,7 +201,7 @@ class _AppInitializerState extends State<AppInitializer> {
     // 初始化定时任务调度器（失败不阻塞）
     try {
       _developerService.log('初始化调度器...', tag: 'AppInit');
-      await SchedulerService().initialize();
+      await SchedulerService().initialize().timeout(initTimeout);
       _developerService.log('调度器初始化成功', tag: 'AppInit');
     } catch (e, stack) {
       _developerService.log(
@@ -213,7 +216,7 @@ class _AppInitializerState extends State<AppInitializer> {
     // 初始化智能提醒引擎（失败不阻塞）
     try {
       _developerService.log('初始化提醒引擎...', tag: 'AppInit');
-      await SmartReminderEngine().initialize();
+      await SmartReminderEngine().initialize().timeout(initTimeout);
       _developerService.log('提醒引擎初始化成功', tag: 'AppInit');
     } catch (e, stack) {
       _developerService.log(
@@ -230,7 +233,7 @@ class _AppInitializerState extends State<AppInitializer> {
       final prefs = await SharedPreferences.getInstance();
       _isFirstLaunch = prefs.getBool('hasSeenOnboarding') != true;
       _developerService.log(
-        '首选项检查完成，首次启动: \$_isFirstLaunch',
+        '首选项检查完成，首次启动: $_isFirstLaunch',
         tag: 'AppInit',
       );
     } catch (e, stack) {

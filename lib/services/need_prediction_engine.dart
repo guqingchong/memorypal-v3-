@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'package:flutter/material.dart';
 import 'database_service.dart';
 import 'database_extension.dart';
 import '../models/recording.dart';
@@ -207,94 +206,6 @@ class NeedPredictionEngine {
     );
   }
 
-  /// 基于时间预测需求
-  Future<List<PredictedNeed>> _predictBasedOnTime(PredictionContext context) async {
-    final needs = <PredictedNeed>[];
-    final hour = context.currentTime.hour;
-    final weekday = context.currentTime.weekday;
-
-    // 早上8-9点：可能需要查看今日概览
-    if (hour >= 8 && hour <= 9) {
-      needs.add(PredictedNeed(
-        type: NeedType.dailyOverview,
-        description: '查看今日待办和安排',
-        confidence: _calculateTimeBasedConfidence(context, 'morning_overview'),
-        suggestedAction: 'show_daily_summary',
-      ));
-    }
-
-    // 中午12点：可能需要记录午休想法
-    if (hour == 12) {
-      needs.add(PredictedNeed(
-        type: NeedType.quickCapture,
-        description: '快速记录午间想法',
-        confidence: _calculateTimeBasedConfidence(context, 'noon_capture'),
-        suggestedAction: 'start_voice_note',
-      ));
-    }
-
-    // 晚上9-10点：可能需要回顾一天
-    if (hour >= 21 && hour <= 22) {
-      needs.add(PredictedNeed(
-        type: NeedType.dailyReview,
-        description: '回顾今天的记录',
-        confidence: _calculateTimeBasedConfidence(context, 'evening_review'),
-        suggestedAction: 'show_daily_summary',
-      ));
-    }
-
-    // 周末早上：可能有更多时间深度思考
-    if ((weekday == 6 || weekday == 7) && hour >= 9 && hour <= 11) {
-      needs.add(PredictedNeed(
-        type: NeedType.deepReflection,
-        description: '深度思考或规划',
-        confidence: _calculateTimeBasedConfidence(context, 'weekend_reflection'),
-        suggestedAction: 'suggest_reflection_prompts',
-      ));
-    }
-
-    return needs;
-  }
-
-  /// 基于行为序列预测需求
-  Future<List<PredictedNeed>> _predictBasedOnSequence(PredictionContext context) async {
-    final needs = <PredictedNeed>[];
-
-    // 检测连续录音模式
-    if (context.recentRecordings.length >= 3) {
-      final lastThree = context.recentRecordings.take(3).toList();
-      final timeSpan = lastThree.first.startTime.difference(lastThree.last.startTime);
-
-      // 如果3小时内录了3条，可能在密集思考某个话题
-      if (timeSpan.inHours <= 3) {
-        needs.add(PredictedNeed(
-          type: NeedType.topicOrganization,
-          description: '整理相关录音为专题笔记',
-          confidence: 0.75,
-          suggestedAction: 'suggest_note_organization',
-          metadata: {'recordings': lastThree.map((r) => r.id).toList()},
-        ));
-      }
-    }
-
-    // 检测待办完成后的行为
-    final recentCompletedTodos = context.recentBehaviors
-        .where((b) => b['action'] == 'complete_todo')
-        .toList();
-
-    if (recentCompletedTodos.isNotEmpty) {
-      // 完成待办后，可能想要记录相关想法
-      needs.add(PredictedNeed(
-        type: NeedType.postCompletionReflection,
-        description: '记录完成待办的心得',
-        confidence: 0.6,
-        suggestedAction: 'prompt_voice_note',
-      ));
-    }
-
-    return needs;
-  }
-
   /// 基于画像预测需求
   Future<List<PredictedNeed>> _predictBasedOnProfile(PredictionContext context) async {
     final needs = <PredictedNeed>[];
@@ -455,13 +366,6 @@ class NeedPredictionEngine {
   bool _shouldSuggestNote(PredictionContext context) {
     // 如果今天有多条录音但没有笔记
     return context.recentRecordings.length >= 3 && context.recentNotes.isEmpty;
-  }
-
-  /// 计算时间模式置信度
-  double _calculateTimeBasedConfidence(PredictionContext context, String patternType) {
-    // 查询历史数据中该时间点的行为频率
-    // 简化实现，实际应查询数据库
-    return 0.7;
   }
 
   /// 获取兴趣记录频率
@@ -775,26 +679,6 @@ class NeedPredictionEngine {
   Future<List<Map<String, dynamic>>> _getPeriodicPatterns() async {
     // TODO: 实现周期模式查询
     return [];
-  }
-
-  // ==================== 原有方法保留 ====================
-
-  /// 去重并排序
-  List<PredictedNeed> _deduplicateAndSort(List<PredictedNeed> needs) {
-    // 按类型去重，保留置信度最高的
-    final uniqueNeeds = <String, PredictedNeed>{};
-    for (final need in needs) {
-      final existing = uniqueNeeds[need.type.name];
-      if (existing == null || need.confidence > existing.confidence) {
-        uniqueNeeds[need.type.name] = need;
-      }
-    }
-
-    // 按置信度排序
-    final sorted = uniqueNeeds.values.toList()
-      ..sort((a, b) => b.confidence.compareTo(a.confidence));
-
-    return sorted;
   }
 
   NeedType _mapActionToNeedType(String action) {

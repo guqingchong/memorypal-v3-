@@ -11,9 +11,9 @@ import '../services/call_state_service.dart';
 import '../services/system_recording_importer.dart';
 import '../services/settings_service.dart';
 import '../services/developer_service.dart';
-import '../services/data_export_service.dart';
 import '../widgets/data_export_section.dart';
 import 'developer_screen.dart';
+import 'imported_file_list_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -26,8 +26,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _databaseService = DatabaseService();
   final _backupService = BackupService();
   final _kimiService = KimiService();
-  final _deepseekService = DeepSeekService();
-  final _siliconflowService = SiliconFlowService();
   final _aiManager = AIServiceManager();
   final _recordingService = RecordingService();
   final _callStateService = CallStateService();
@@ -174,6 +172,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isImporting = false);
       return;
     }
+
+    if (!mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -972,29 +972,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('自动环境录音'),
               subtitle: const Text('启动后自动开始24小时环境录音'),
               value: _autoRecording,
-              onChanged: (value) async {
-                setState(() => _autoRecording = value);
-                // 保存到SharedPreferences
-                await _settingsService.setAutoRecordingEnabled(value);
-                if (value) {
-                  final result = await _recordingService.startBackgroundRecording();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(result ? '后台录音已启动' : '启动后台录音失败'),
-                        backgroundColor: result ? Colors.green : Colors.red,
-                      ),
-                    );
-                  }
-                } else {
-                  await _recordingService.stopBackgroundRecording();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('后台录音已停止')),
-                    );
-                  }
-                }
-              },
+              onChanged: (value) => _onAutoRecordingChanged(value),
             ),
             ListTile(
               title: const Text('录音质量'),
@@ -1164,6 +1142,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // 数据管理
           _buildSection('数据管理', [
             ListTile(
+              title: const Text('导入文件管理'),
+              subtitle: const Text('查看和批量删除导入的文档'),
+              leading: const Icon(Icons.folder_open, color: Colors.purple),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ImportedFileListScreen()),
+                );
+              },
+            ),
+            ListTile(
               title: const Text('导出所有数据'),
               subtitle: const Text('创建加密备份文件'),
               leading: const Icon(Icons.download),
@@ -1195,22 +1185,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               title: const Text('版本'),
               trailing: GestureDetector(
-                onTap: () async {
-                  final triggered = await _developerService.checkDeveloperModeTrigger();
-                  if (triggered && mounted) {
-                    setState(() => _isDeveloperMode = true);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('开发者模式已开启'),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                  }
-                },
+                onTap: _onVersionTap,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _isDeveloperMode ? Colors.orange.withOpacity(0.2) : null,
+                    color: _isDeveloperMode ? Colors.orange.withValues(alpha: 0.2) : null,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -1463,6 +1442,7 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
     );
 
     if (confirmed != true) return;
+    if (!mounted) return;
 
     // 显示进度对话框
     showDialog(
@@ -1515,6 +1495,7 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
             }
           }
 
+          if (!mounted) return;
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
@@ -1562,6 +1543,41 @@ MemoryPal是一款24小时个人智能助理应用，帮助用户记录和管理
           );
         }
       }
+    }
+  }
+
+  Future<void> _onAutoRecordingChanged(bool value) async {
+    setState(() => _autoRecording = value);
+    await _settingsService.setAutoRecordingEnabled(value);
+    if (value) {
+      final result = await _recordingService.startBackgroundRecording();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result ? '后台录音已启动' : '启动后台录音失败'),
+          backgroundColor: result ? Colors.green : Colors.red,
+        ),
+      );
+    } else {
+      await _recordingService.stopBackgroundRecording();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('后台录音已停止')),
+      );
+    }
+  }
+
+  Future<void> _onVersionTap() async {
+    final triggered = await _developerService.checkDeveloperModeTrigger();
+    if (!mounted) return;
+    if (triggered) {
+      setState(() => _isDeveloperMode = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('开发者模式已开启'),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 }

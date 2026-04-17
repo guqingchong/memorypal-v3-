@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/recording.dart';
 import '../services/database_service.dart';
@@ -21,16 +22,22 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
   bool _isLoading = true;
   bool _isBackgroundRecording = false;
 
+  // 批量选择模式
+  bool _isSelectionMode = false;
+  final Set<int> _selectedIds = {};
+  StreamSubscription<bool>? _backgroundRecordingSub;
+
   @override
   void initState() {
     super.initState();
     _loadRecordings();
     _checkBackgroundRecordingStatus();
-    _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
+    _backgroundRecordingSub = _recordingService.backgroundRecordingState.listen(_onBackgroundRecordingStateChanged);
   }
 
   @override
   void dispose() {
+    _backgroundRecordingSub?.cancel();
     super.dispose();
   }
 
@@ -115,44 +122,117 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
     }
   }
 
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelection(int id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) {
+        _isSelectionMode = false;
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      _selectedIds.addAll(_recordings.where((r) => r.id != null).map((r) => r.id!));
+    });
+  }
+
+  Future<void> _deleteSelectedRecordings() async {
+    if (_selectedIds.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认批量删除'),
+        content: Text('确定要删除选中的 ${_selectedIds.length} 条录音吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _recordingService.deleteRecordings(_selectedIds.toList());
+      _exitSelectionMode();
+      _loadRecordings();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('录音记录'),
+        title: _isSelectionMode
+            ? Text('已选中 ${_selectedIds.length} 项')
+            : const Text('录音记录'),
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
         actions: [
-          // 后台录音状态指示器
-          if (_isBackgroundRecording)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    '24h录音中',
-                    style: TextStyle(fontSize: 12, color: Colors.green),
-                  ),
-                ],
-              ),
+          if (_isSelectionMode) ...[
+            TextButton(
+              onPressed: _selectAll,
+              child: const Text('全选'),
             ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadRecordings,
-          ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: _deleteSelectedRecordings,
+            ),
+          ] else ...[
+            // 后台录音状态指示器
+            if (_isBackgroundRecording)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Text(
+                      '24h录音中',
+                      style: TextStyle(fontSize: 12, color: Colors.green),
+                    ),
+                  ],
+                ),
+              ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadRecordings,
+            ),
+          ],
         ],
       ),
       body: _isLoading
@@ -255,7 +335,7 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
+                  color: Colors.blue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -289,51 +369,61 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
     final isVoiceNote = recording.isVoiceNote;
     final isBackgroundRecording = recording.source == 'background';
     final hasTranscript = recording.transcript != null && recording.transcript!.isNotEmpty;
+    final isSelected = recording.id != null && _selectedIds.contains(recording.id);
 
-    return Dismissible(
-      key: Key('recording_${recording.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 16),
-        decoration: BoxDecoration(
-          color: Colors.red,
-          borderRadius: BorderRadius.circular(16),
+    final cardContent = Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isSelected ? Colors.blue : Colors.grey.shade200,
+          width: isSelected ? 2 : 1,
         ),
-        child: const Icon(Icons.delete, color: Colors.white),
       ),
-      onDismissed: (_) => _deleteRecording(recording),
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 10),
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.shade200),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => RecordingDetailScreen(recording: recording),
-              ),
-            ).then((_) => _loadRecordings());
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                // 录音类型图标
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _isSelectionMode
+            ? () => recording.id != null ? _toggleSelection(recording.id!) : null
+            : () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RecordingDetailScreen(recording: recording),
+                  ),
+                ).then((_) => _loadRecordings());
+              },
+        onLongPress: !_isSelectionMode && recording.id != null
+            ? () => _toggleSelection(recording.id!)
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // 选择框或录音类型图标
+              if (_isSelectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Checkbox(
+                    value: isSelected,
+                    onChanged: recording.id != null
+                        ? (_) => _toggleSelection(recording.id!)
+                        : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                )
+              else
                 Container(
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
                     color: isVoiceNote
-                        ? Colors.orange.withOpacity(0.1)
+                        ? Colors.orange.withValues(alpha: 0.1)
                         : isBackgroundRecording
-                            ? Colors.green.withOpacity(0.1)
-                            : Colors.blue.withOpacity(0.1),
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.blue.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -350,92 +440,111 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
                     size: 24,
                   ),
                 ),
-                const SizedBox(width: 12),
-                // 录音信息
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        recording.title ??
-                            (isVoiceNote ? '语音笔记' : '录音 ${_formatTime(recording.startTime)}'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
+              if (!_isSelectionMode) const SizedBox(width: 12),
+              // 录音信息
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      recording.title ??
+                          (isVoiceNote ? '语音笔记' : '录音 ${_formatTime(recording.startTime)}'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
                       ),
-                      const SizedBox(height: 4),
-                      if (hasTranscript)
-                        Text(
-                          recording.transcript!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                            height: 1.3,
-                          ),
-                        )
-                      else
-                        Row(
-                          children: [
-                            Icon(Icons.pending, size: 12, color: Colors.grey.shade400),
-                            const SizedBox(width: 4),
-                            Text(
-                              '等待转写',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade400,
-                              ),
-                            ),
-                          ],
+                    ),
+                    const SizedBox(height: 4),
+                    if (hasTranscript)
+                      Text(
+                        recording.transcript!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                          height: 1.3,
                         ),
-                      const SizedBox(height: 6),
+                      )
+                    else
                       Row(
                         children: [
-                          Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
+                          Icon(Icons.pending, size: 12, color: Colors.grey.shade400),
                           const SizedBox(width: 4),
                           Text(
-                            _formatTime(recording.startTime),
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                          ),
-                          const SizedBox(width: 12),
-                          Icon(Icons.timer_outlined, size: 12, color: Colors.grey.shade400),
-                          const SizedBox(width: 4),
-                          Text(
-                            _formatDuration(recording.durationSeconds),
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                          ),
-                          if (recording.locationName != null) ...[
-                            const SizedBox(width: 12),
-                            Icon(Icons.location_on, size: 12, color: Colors.grey.shade400),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                recording.locationName!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                              ),
+                            '等待转写',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade400,
                             ),
-                          ],
+                          ),
                         ],
                       ),
-                    ],
-                  ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatTime(recording.startTime),
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(Icons.timer_outlined, size: 12, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatDuration(recording.durationSeconds),
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        ),
+                        if (recording.locationName != null) ...[
+                          const SizedBox(width: 12),
+                          Icon(Icons.location_on, size: 12, color: Colors.grey.shade400),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              recording.locationName!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
                 ),
-                // 播放箭头
-                Icon(
-                  Icons.chevron_right,
-                  color: Colors.grey.shade400,
-                ),
-              ],
-            ),
+              ),
+              // 播放箭头
+              Icon(
+                Icons.chevron_right,
+                color: Colors.grey.shade400,
+              ),
+            ],
           ),
         ),
       ),
+    );
+
+    if (_isSelectionMode) {
+      return cardContent;
+    }
+
+    return Dismissible(
+      key: Key('recording_${recording.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      onDismissed: (_) => _deleteRecording(recording),
+      child: cardContent,
     );
   }
 
@@ -460,7 +569,7 @@ class _RecordingListScreenState extends State<RecordingListScreen> {
 
   String _formatDuration(int seconds) {
     if (seconds < 60) {
-      return '${seconds}秒';
+      return '$seconds秒';
     } else if (seconds < 3600) {
       return '${seconds ~/ 60}分${seconds % 60}秒';
     } else {

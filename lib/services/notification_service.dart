@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -24,7 +25,7 @@ class NotificationService {
       // 初始化时区数据（某些设备可能失败）
       tz_data.initializeTimeZones();
     } catch (e) {
-      print('时区初始化失败: $e');
+      debugPrint('时区初始化失败: $e');
       // 继续执行，不阻塞应用启动
     }
 
@@ -56,7 +57,7 @@ class NotificationService {
 
       _initialized = true;
     } catch (e) {
-      print('通知服务初始化失败: $e');
+      debugPrint('通知服务初始化失败: $e');
       // 不阻塞应用启动，通知功能可能不可用
     }
   }
@@ -202,7 +203,7 @@ class NotificationService {
         ),
         iOS: const DarwinNotificationDetails(),
       ),
-      androidAllowWhileIdle: true,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       payload: payload,

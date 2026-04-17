@@ -1,11 +1,8 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'database_service.dart';
-import 'recording_service.dart';
 import 'scheduler_service.dart';
 import '../models/recording.dart';
-import '../models/user_profile.dart';
 
 /// AI智能体服务 - 工具调用与执行系统
 ///
@@ -24,13 +21,11 @@ class AgentService {
   AgentService._internal();
 
   final DatabaseService _databaseService = DatabaseService();
-  final RecordingService _recordingService = RecordingService();
   final SchedulerService _schedulerService = SchedulerService();
 
   // 工具执行回调（用于触发UI操作）
   Function(String recordingPath)? onPlayRecording;
   Function()? onStartRecording;
-  Function()? onOpenSettings;
   Function(String todoContent)? onShowTodoNotification;
 
   /// 获取所有可用工具的定义（用于系统提示词）
@@ -462,7 +457,7 @@ class AgentService {
       scheduledTime: scheduledTime,
     );
 
-    return ToolResult.success('提醒已设置: $title (${timeStr})');
+    return ToolResult.success('提醒已设置: $title ($timeStr)');
   }
 
   Future<ToolResult> _handleStartRecording(Map<String, dynamic> params) async {
@@ -473,12 +468,11 @@ class AgentService {
     onStartRecording?.call();
 
     final typeDesc = type == 'voice_note' ? '语音笔记' : '后台录音';
-    return ToolResult.success('已开始$typeDesc${duration != null ? "，时长${duration}秒" : ""}');
+    return ToolResult.success('已开始$typeDesc${duration != null ? "，时长$duration秒" : ""}');
   }
 
   Future<ToolResult> _handleImportCallRecordings(Map<String, dynamic> params) async {
     final phoneNumber = params['phoneNumber'] as String?;
-    final afterDateStr = params['afterDate'] as String?;
 
     // 这里应该调用SystemRecordingImporter，但由于是异步单例，简化处理
     return ToolResult.success(

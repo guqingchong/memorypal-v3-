@@ -24,7 +24,7 @@ class DatabaseService {
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'memorypal.db');
-    _developerService.log('初始化数据库: $path', tag: 'Database');
+    _developerService.log('初始化数据库: $path');
 
     try {
       final db = await openDatabase(
@@ -33,7 +33,7 @@ class DatabaseService {
         onCreate: _createTables,
         onUpgrade: _upgradeTables,
       );
-      _developerService.log('数据库初始化成功', tag: 'Database');
+      _developerService.log('数据库初始化成功');
       return db;
     } catch (e, stack) {
       _developerService.log(
@@ -48,7 +48,7 @@ class DatabaseService {
   }
 
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
-    _developerService.log('数据库升级: $oldVersion -> $newVersion', tag: 'Database');
+    _developerService.log('数据库升级: $oldVersion -> $newVersion');
 
     if (oldVersion < 6) {
       // 版本6：添加AI对话历史表
@@ -63,9 +63,9 @@ class DatabaseService {
             session_id TEXT DEFAULT 'default'
           )
         ''');
-        print('数据库升级：创建chat_messages表');
+        _developerService.log('数据库升级：创建chat_messages表');
       } catch (e) {
-        print('创建chat_messages表失败: $e');
+        _developerService.log('创建chat_messages表失败: $e');
       }
     }
 
@@ -74,7 +74,7 @@ class DatabaseService {
       try {
         await db.execute('ALTER TABLE recordings ADD COLUMN is_voice_note INTEGER DEFAULT 0');
       } catch (e) {
-        print('升级数据库失败（可能字段已存在）: $e');
+        _developerService.log('升级数据库失败（可能字段已存在）: $e');
       }
 
       // 添加事项追踪表
@@ -94,7 +94,7 @@ class DatabaseService {
           )
         ''');
       } catch (e) {
-        print('创建事项追踪表失败: $e');
+        _developerService.log('创建事项追踪表失败: $e');
       }
     }
 
@@ -102,9 +102,9 @@ class DatabaseService {
       // 添加title字段到录音表（版本3）
       try {
         await db.execute('ALTER TABLE recordings ADD COLUMN title TEXT');
-        print('数据库升级：添加title字段到recordings表');
+        _developerService.log('数据库升级：添加title字段到recordings表');
       } catch (e) {
-        print('添加title字段失败（可能已存在）: $e');
+        _developerService.log('添加title字段失败（可能已存在）: $e');
       }
     }
 
@@ -112,15 +112,15 @@ class DatabaseService {
       // 版本4：添加file_name和source字段
       try {
         await db.execute('ALTER TABLE recordings ADD COLUMN file_name TEXT');
-        print('数据库升级：添加file_name字段到recordings表');
+        _developerService.log('数据库升级：添加file_name字段到recordings表');
       } catch (e) {
-        print('添加file_name字段失败（可能已存在）: $e');
+        _developerService.log('添加file_name字段失败（可能已存在）: $e');
       }
       try {
         await db.execute('ALTER TABLE recordings ADD COLUMN source TEXT DEFAULT "app"');
-        print('数据库升级：添加source字段到recordings表');
+        _developerService.log('数据库升级：添加source字段到recordings表');
       } catch (e) {
-        print('添加source字段失败（可能已存在）: $e');
+        _developerService.log('添加source字段失败（可能已存在）: $e');
       }
     }
 
@@ -137,9 +137,9 @@ class DatabaseService {
             imported_at INTEGER NOT NULL
           )
         ''');
-        print('数据库升级：创建imported_files表');
+        _developerService.log('数据库升级：创建imported_files表');
       } catch (e) {
-        print('创建imported_files表失败: $e');
+        _developerService.log('创建imported_files表失败: $e');
       }
     }
   }
@@ -319,7 +319,7 @@ class DatabaseService {
     try {
       final db = await database;
       final id = await db.insert('recordings', recording.toMap());
-      _developerService.log('录音已插入数据库，ID: $id, 路径: ${recording.filePath}', tag: 'Database');
+      _developerService.log('录音已插入数据库，ID: $id, 路径: ${recording.filePath}');
       return id;
     } catch (e, stack) {
       _developerService.log(
@@ -342,7 +342,7 @@ class DatabaseService {
         limit: limit,
         offset: offset,
       );
-      _developerService.log('查询录音列表，返回 ${maps.length} 条记录', tag: 'Database');
+      _developerService.log('查询录音列表，返回 ${maps.length} 条记录');
       return maps.map((m) => Recording.fromMap(m)).toList();
     } catch (e, stack) {
       _developerService.log(
@@ -367,6 +367,28 @@ class DatabaseService {
     return Recording.fromMap(maps.first);
   }
 
+  Future<Recording?> getRecordingByFilePath(String filePath) async {
+    try {
+      final db = await database;
+      final maps = await db.query(
+        'recordings',
+        where: 'file_path = ?',
+        whereArgs: [filePath],
+      );
+      if (maps.isEmpty) return null;
+      return Recording.fromMap(maps.first);
+    } catch (e, stack) {
+      _developerService.log(
+        '按路径查询录音失败',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      return null;
+    }
+  }
+
   Future<int> updateRecording(Recording recording) async {
     final db = await database;
     return await db.update(
@@ -385,11 +407,35 @@ class DatabaseService {
         where: 'id = ?',
         whereArgs: [id],
       );
-      _developerService.log('删除录音记录，ID: $id, 影响行数: $result', tag: 'Database');
+      _developerService.log('删除录音记录，ID: $id, 影响行数: $result');
       return result;
     } catch (e, stack) {
       _developerService.log(
         '删除录音记录失败，ID: $id',
+        level: LogLevel.error,
+        tag: 'Database',
+        error: e,
+        stackTrace: stack,
+      );
+      rethrow;
+    }
+  }
+
+  Future<int> deleteRecordings(List<int> ids) async {
+    if (ids.isEmpty) return 0;
+    try {
+      final db = await database;
+      final placeholders = List.filled(ids.length, '?').join(',');
+      final result = await db.delete(
+        'recordings',
+        where: 'id IN ($placeholders)',
+        whereArgs: ids,
+      );
+      _developerService.log('批量删除录音记录，数量: ${ids.length}, 影响行数: $result');
+      return result;
+    } catch (e, stack) {
+      _developerService.log(
+        '批量删除录音记录失败',
         level: LogLevel.error,
         tag: 'Database',
         error: e,
@@ -419,7 +465,7 @@ class DatabaseService {
   Future<List<Note>> getNotes({int limit = 100, int offset = 0}) async {
     try {
       final db = await database;
-      _developerService.log('查询笔记列表，limit=$limit, offset=$offset', tag: 'Database');
+      _developerService.log('查询笔记列表，limit=$limit, offset=$offset');
 
       final maps = await db.query(
         'notes',
@@ -428,7 +474,7 @@ class DatabaseService {
         offset: offset,
       );
 
-      _developerService.log('查询到 ${maps.length} 条原始笔记数据', tag: 'Database');
+      _developerService.log('查询到 ${maps.length} 条原始笔记数据');
 
       final notes = <Note>[];
       for (var i = 0; i < maps.length; i++) {
@@ -447,7 +493,7 @@ class DatabaseService {
         }
       }
 
-      _developerService.log('成功解析 ${notes.length}/${maps.length} 条笔记', tag: 'Database');
+      _developerService.log('成功解析 ${notes.length}/${maps.length} 条笔记');
       return notes;
     } catch (e, stack) {
       _developerService.log(
@@ -500,7 +546,7 @@ class DatabaseService {
       if (maps.isEmpty) return null;
       return UserProfile.fromMap(maps.first);
     } catch (e) {
-      print('获取用户画像失败: $e');
+      _developerService.log('获取用户画像失败: $e');
       return null;
     }
   }
@@ -520,7 +566,7 @@ class DatabaseService {
         return await db.insert('user_profile', profile.toMap());
       }
     } catch (e) {
-      print('保存用户画像失败: $e');
+      _developerService.log('保存用户画像失败: $e');
       return -1;
     }
   }
@@ -579,7 +625,7 @@ class DatabaseService {
       final db = await database;
       return await db.insert('todos', todo);
     } catch (e) {
-      print('插入待办失败: $e');
+      _developerService.log('插入待办失败: $e');
       return null;
     }
   }
@@ -593,7 +639,7 @@ class DatabaseService {
         orderBy: 'deadline ASC, priority DESC',
       );
     } catch (e) {
-      print('获取待办列表失败: $e');
+      _developerService.log('获取待办列表失败: $e');
       return [];
     }
   }
@@ -611,7 +657,7 @@ class DatabaseService {
         whereArgs: [id],
       );
     } catch (e) {
-      print('完成待办失败: $e');
+      _developerService.log('完成待办失败: $e');
       return 0;
     }
   }
@@ -625,7 +671,7 @@ class DatabaseService {
         whereArgs: [id],
       );
     } catch (e) {
-      print('删除待办失败: $e');
+      _developerService.log('删除待办失败: $e');
       return 0;
     }
   }
@@ -654,7 +700,7 @@ class DatabaseService {
       }
       return maps.first;
     } catch (e) {
-      print('获取设置失败: $e');
+      _developerService.log('获取设置失败: $e');
       // 返回默认设置
       return {
         'max_suggestions_per_day': 3,
@@ -688,7 +734,7 @@ class DatabaseService {
       final db = await database;
       return await db.insert('imported_files', file);
     } catch (e) {
-      print('插入导入文件记录失败: $e');
+      _developerService.log('插入导入文件记录失败: $e');
       return null;
     }
   }
@@ -702,7 +748,7 @@ class DatabaseService {
         limit: limit,
       );
     } catch (e) {
-      print('获取导入文件列表失败: $e');
+      _developerService.log('获取导入文件列表失败: $e');
       return [];
     }
   }
@@ -716,7 +762,23 @@ class DatabaseService {
         whereArgs: [id],
       );
     } catch (e) {
-      print('删除导入文件记录失败: $e');
+      _developerService.log('删除导入文件记录失败: $e');
+      return 0;
+    }
+  }
+
+  Future<int> deleteImportedFiles(List<int> ids) async {
+    if (ids.isEmpty) return 0;
+    try {
+      final db = await database;
+      final placeholders = List.filled(ids.length, '?').join(',');
+      return await db.delete(
+        'imported_files',
+        where: 'id IN ($placeholders)',
+        whereArgs: ids,
+      );
+    } catch (e) {
+      _developerService.log('批量删除导入文件记录失败: $e');
       return 0;
     }
   }
@@ -733,7 +795,7 @@ class DatabaseService {
         'session_id': message['session_id'] ?? 'default',
       });
     } catch (e) {
-      print('插入对话消息失败: $e');
+      _developerService.log('插入对话消息失败: $e');
       return -1;
     }
   }
@@ -749,7 +811,7 @@ class DatabaseService {
         limit: limit,
       );
     } catch (e) {
-      print('获取对话历史失败: $e');
+      _developerService.log('获取对话历史失败: $e');
       return [];
     }
   }
@@ -763,7 +825,7 @@ class DatabaseService {
         whereArgs: [id],
       );
     } catch (e) {
-      print('删除对话消息失败: $e');
+      _developerService.log('删除对话消息失败: $e');
       return 0;
     }
   }
@@ -777,7 +839,7 @@ class DatabaseService {
         whereArgs: [sessionId],
       );
     } catch (e) {
-      print('清空对话历史失败: $e');
+      _developerService.log('清空对话历史失败: $e');
       return 0;
     }
   }
