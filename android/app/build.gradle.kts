@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.memorypal_v3"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.2.12479018"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -37,10 +37,11 @@ android {
     }
 
     // CMake支持 - 用于编译whisper本地库
+    // 使用Android SDK预装的稳定版本，避免云端环境缺失
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.0"
+            version = "3.22.1"
         }
     }
 
